@@ -1,5 +1,11 @@
-package com.konecta.stores_stock_service.store.hours;
+package com.konecta.stores_stock_service.store.hours.service;
 
+import com.konecta.stores_stock_service.store.hours.dto.DayHoursDto;
+import com.konecta.stores_stock_service.store.hours.dto.HoursResponse;
+import com.konecta.stores_stock_service.store.hours.dto.UpdateHoursRequest;
+import com.konecta.stores_stock_service.store.hours.model.OpeningHour;
+import com.konecta.stores_stock_service.store.hours.model.WeekDay;
+import com.konecta.stores_stock_service.store.hours.repository.OpeningHoursRepository;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;

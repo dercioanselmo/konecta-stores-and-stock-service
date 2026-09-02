@@ -1,8 +1,10 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.controller;
 
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.catalog.dto.CreateCategoryRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateCategoryRequest;
+import com.konecta.stores_stock_service.catalog.model.Product;
+import com.konecta.stores_stock_service.catalog.service.CategoryAdminService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;

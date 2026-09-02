@@ -1,5 +1,6 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.repository;
 
+import com.konecta.stores_stock_service.store.model.Store;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

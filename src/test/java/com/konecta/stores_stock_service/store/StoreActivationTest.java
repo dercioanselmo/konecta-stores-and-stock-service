@@ -2,6 +2,7 @@ package com.konecta.stores_stock_service.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.konecta.stores_stock_service.store.model.Store;
 import org.junit.jupiter.api.Test;
 
 class StoreActivationTest {

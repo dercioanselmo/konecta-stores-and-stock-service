@@ -1,4 +1,4 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.service;
 
 import java.util.UUID;
 

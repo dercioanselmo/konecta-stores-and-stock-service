@@ -1,4 +1,4 @@
-package com.konecta.stores_stock_service.inventory;
+package com.konecta.stores_stock_service.inventory.model;
 
 public enum StockMovementReason {
     MANUAL_ADJUST,

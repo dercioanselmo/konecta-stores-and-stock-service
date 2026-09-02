@@ -1,13 +1,20 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.service;
 
 import com.konecta.stores_stock_service.catalog.dto.CreateProductRequest;
 import com.konecta.stores_stock_service.catalog.dto.ProductResponse;
 import com.konecta.stores_stock_service.catalog.dto.StockAdjustRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateProductRequest;
+import com.konecta.stores_stock_service.catalog.model.Category;
+import com.konecta.stores_stock_service.catalog.model.Product;
+import com.konecta.stores_stock_service.catalog.model.ProductStatus;
+import com.konecta.stores_stock_service.catalog.model.Subcategory;
+import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
+import com.konecta.stores_stock_service.catalog.repository.ProductRepository;
+import com.konecta.stores_stock_service.catalog.repository.SubcategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
 import com.konecta.stores_stock_service.common.PageResponse;
-import com.konecta.stores_stock_service.inventory.Inventory;
-import com.konecta.stores_stock_service.inventory.InventoryService;
+import com.konecta.stores_stock_service.inventory.model.Inventory;
+import com.konecta.stores_stock_service.inventory.service.InventoryService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

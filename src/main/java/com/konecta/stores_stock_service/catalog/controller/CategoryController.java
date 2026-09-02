@@ -1,7 +1,10 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.controller;
 
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.catalog.dto.SubcategoryResponse;
+import com.konecta.stores_stock_service.catalog.model.Category;
+import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
+import com.konecta.stores_stock_service.catalog.repository.SubcategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
 import java.util.List;
 import java.util.UUID;

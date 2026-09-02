@@ -7,6 +7,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.konecta.stores_stock_service.common.ApiException;
+import com.konecta.stores_stock_service.inventory.model.Inventory;
+import com.konecta.stores_stock_service.inventory.model.StockMovement;
+import com.konecta.stores_stock_service.inventory.repository.InventoryRepository;
+import com.konecta.stores_stock_service.inventory.repository.StockMovementRepository;
+import com.konecta.stores_stock_service.inventory.service.InventoryService;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -22,7 +27,7 @@ class InventoryServiceTest {
     @Mock
     private StockMovementRepository stockMovementRepository;
     @Mock
-    private com.konecta.stores_stock_service.catalog.ProductRepository productRepository;
+    private com.konecta.stores_stock_service.catalog.repository.ProductRepository productRepository;
 
     private InventoryService service() {
         return new InventoryService(inventoryRepository, stockMovementRepository, productRepository);

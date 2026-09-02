@@ -1,7 +1,7 @@
 package com.konecta.stores_stock_service.store.dto;
 
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
-import com.konecta.stores_stock_service.store.StoreStatus;
+import com.konecta.stores_stock_service.store.model.StoreStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

@@ -1,4 +1,4 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.controller;
 
 import com.konecta.stores_stock_service.security.CurrentUser;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
@@ -6,9 +6,10 @@ import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
 import com.konecta.stores_stock_service.store.dto.UpdateShopRequest;
-import com.konecta.stores_stock_service.store.hours.HoursResponse;
-import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
-import com.konecta.stores_stock_service.store.hours.UpdateHoursRequest;
+import com.konecta.stores_stock_service.store.hours.dto.HoursResponse;
+import com.konecta.stores_stock_service.store.hours.dto.UpdateHoursRequest;
+import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
+import com.konecta.stores_stock_service.store.service.StoreService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;

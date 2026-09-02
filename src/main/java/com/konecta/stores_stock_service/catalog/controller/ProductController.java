@@ -1,12 +1,13 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.controller;
 
 import com.konecta.stores_stock_service.catalog.dto.CreateProductRequest;
 import com.konecta.stores_stock_service.catalog.dto.ProductResponse;
 import com.konecta.stores_stock_service.catalog.dto.StockAdjustRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateProductRequest;
+import com.konecta.stores_stock_service.catalog.service.ProductService;
 import com.konecta.stores_stock_service.common.PageResponse;
 import com.konecta.stores_stock_service.security.CurrentUser;
-import com.konecta.stores_stock_service.store.StoreService;
+import com.konecta.stores_stock_service.store.service.StoreService;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
@@ -14,8 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;

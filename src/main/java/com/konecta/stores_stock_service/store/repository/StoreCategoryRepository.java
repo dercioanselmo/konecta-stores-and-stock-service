@@ -1,5 +1,6 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.repository;
 
+import com.konecta.stores_stock_service.store.model.StoreCategory;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;

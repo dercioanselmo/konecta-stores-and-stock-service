@@ -3,6 +3,10 @@ package com.konecta.stores_stock_service.store.hours;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.konecta.stores_stock_service.store.hours.model.OpeningHour;
+import com.konecta.stores_stock_service.store.hours.model.WeekDay;
+import com.konecta.stores_stock_service.store.hours.repository.OpeningHoursRepository;
+import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.List;

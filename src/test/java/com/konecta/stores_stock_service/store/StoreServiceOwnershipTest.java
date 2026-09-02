@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
-import com.konecta.stores_stock_service.catalog.CategoryRepository;
+import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
-import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
+import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
+import com.konecta.stores_stock_service.store.model.Store;
+import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
+import com.konecta.stores_stock_service.store.repository.StoreRepository;
+import com.konecta.stores_stock_service.store.service.LowStockCounter;
+import com.konecta.stores_stock_service.store.service.StoreService;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;

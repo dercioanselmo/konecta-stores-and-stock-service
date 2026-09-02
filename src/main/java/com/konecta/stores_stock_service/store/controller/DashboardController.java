@@ -1,10 +1,14 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.controller;
 
-import com.konecta.stores_stock_service.catalog.ProductRepository;
-import com.konecta.stores_stock_service.catalog.ProductStatus;
+import com.konecta.stores_stock_service.catalog.model.ProductStatus;
+import com.konecta.stores_stock_service.catalog.repository.ProductRepository;
 import com.konecta.stores_stock_service.security.CurrentUser;
 import com.konecta.stores_stock_service.store.dto.DashboardSummaryResponse;
-import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
+import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
+import com.konecta.stores_stock_service.store.model.Store;
+import com.konecta.stores_stock_service.store.model.StoreStatus;
+import com.konecta.stores_stock_service.store.service.LowStockCounter;
+import com.konecta.stores_stock_service.store.service.StoreService;
 import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;

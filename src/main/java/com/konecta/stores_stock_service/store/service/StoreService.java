@@ -1,15 +1,20 @@
-package com.konecta.stores_stock_service.store;
+package com.konecta.stores_stock_service.store.service;
 
-import com.konecta.stores_stock_service.catalog.Category;
-import com.konecta.stores_stock_service.catalog.CategoryRepository;
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
+import com.konecta.stores_stock_service.catalog.model.Category;
+import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
 import com.konecta.stores_stock_service.store.dto.UpdateShopRequest;
-import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
+import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
+import com.konecta.stores_stock_service.store.model.Store;
+import com.konecta.stores_stock_service.store.model.StoreCategory;
+import com.konecta.stores_stock_service.store.model.StoreStatus;
+import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
+import com.konecta.stores_stock_service.store.repository.StoreRepository;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;

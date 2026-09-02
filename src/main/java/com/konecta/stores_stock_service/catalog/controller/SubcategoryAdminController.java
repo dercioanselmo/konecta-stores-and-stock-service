@@ -1,8 +1,9 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.controller;
 
 import com.konecta.stores_stock_service.catalog.dto.CreateSubcategoryRequest;
 import com.konecta.stores_stock_service.catalog.dto.SubcategoryResponse;
 import com.konecta.stores_stock_service.catalog.dto.UpdateSubcategoryRequest;
+import com.konecta.stores_stock_service.catalog.service.SubcategoryAdminService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;

@@ -1,10 +1,13 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.service;
 
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.catalog.dto.CreateCategoryRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateCategoryRequest;
+import com.konecta.stores_stock_service.catalog.model.Category;
+import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
+import com.konecta.stores_stock_service.catalog.repository.SubcategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
-import com.konecta.stores_stock_service.store.StoreCategoryRepository;
+import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;

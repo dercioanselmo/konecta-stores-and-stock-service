@@ -1,4 +1,4 @@
-package com.konecta.stores_stock_service.catalog;
+package com.konecta.stores_stock_service.catalog.model;
 
 public enum ProductStatus {
     DRAFT,
