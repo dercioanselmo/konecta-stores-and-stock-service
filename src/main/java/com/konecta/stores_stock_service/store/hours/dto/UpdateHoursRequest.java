@@ -5,5 +5,5 @@ import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 
 public record UpdateHoursRequest(
-        @NotEmpty(message = "não pode estar vazio") @Valid List<DayHoursDto> days) {
+        @NotEmpty(message = "não pode estar vazio") List<@Valid DayHoursDto> days) {
 }

@@ -28,14 +28,8 @@ public enum WeekDay {
     }
 
     public static WeekDay fromJavaDayOfWeek(DayOfWeek javaDayOfWeek) {
-        return switch (javaDayOfWeek) {
-            case MONDAY -> SEGUNDA;
-            case TUESDAY -> TERCA;
-            case WEDNESDAY -> QUARTA;
-            case THURSDAY -> QUINTA;
-            case FRIDAY -> SEXTA;
-            case SATURDAY -> SABADO;
-            case SUNDAY -> DOMINGO;
-        };
+        // Both enums are declared Monday-first in the same order, so ordinal
+        // position alone is the mapping — no switch/lookup table needed.
+        return values()[javaDayOfWeek.ordinal()];
     }
 }
