@@ -1,6 +1,5 @@
 package com.konecta.stores_stock_service.store.hours;
 
-import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -48,10 +47,10 @@ public class OpeningHoursService {
         if (hours.isEmpty()) {
             return false;
         }
-        Map<DayOfWeek, OpeningHour> byDay = hours.stream()
+        Map<WeekDay, OpeningHour> byDay = hours.stream()
                 .collect(Collectors.toMap(OpeningHour::getDayOfWeek, h -> h));
         ZonedDateTime now = ZonedDateTime.now(MAPUTO);
-        OpeningHour today = byDay.get(now.getDayOfWeek());
+        OpeningHour today = byDay.get(WeekDay.fromJavaDayOfWeek(now.getDayOfWeek()));
         if (today == null || today.isClosed() || today.getOpensAt() == null || today.getClosesAt() == null) {
             return false;
         }

@@ -4,6 +4,19 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Secrets / local env ###
+.env
+.env.*
+!.env.example
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Logs ###
+*.log
+logs/
+
 ### STS ###
 .apt_generated
 .classpath

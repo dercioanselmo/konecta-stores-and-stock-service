@@ -15,4 +15,6 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, JpaSpec
     long countByStoreId(UUID storeId);
 
     long countByStoreIdAndStatus(UUID storeId, ProductStatus status);
+
+    boolean existsBySubcategoryId(UUID subcategoryId);
 }

@@ -1,35 +1,58 @@
-# Merchant Dashboard — API requirements
+# Merchant Dashboard — API reference
 
-Frontend-authored spec: this backend **does not exist yet**. Everything
-below is what the KONECTA Merchant dashboard (Phase 1, per `AGENTS.md` §6)
-needs — write the real service against this, not the other way around.
-Once endpoints are live, tell the frontend and it'll be wired up and tested
-against them (same flow as `API_REFERENCE-security-service.md`, which
-started the same way as an Auth spec before the real service existed).
+**This backend is live.** This file has been rewritten from the original
+frontend-authored spec to describe what the **Stores-and-Stock service**
+actually implements today, verified against a running instance with real
+JWTs issued by KONECTA-SECURITY-SERVICE. Sections the backend does **not**
+own (Orders, Sales, Receipts, photo upload) are called out explicitly —
+see [What's not here](#whats-not-here) — rather than removed, so the
+frontend knows what to stub vs. what to wire up now.
 
-Auth for every endpoint below: `Authorization: Bearer <accessToken>`,
-role `MERCHANT` (same JWT/session already issued by the Auth service — no
-new auth mechanism needed here). A non-merchant token should get `403`; no
-token, `401` — reuse the Auth service's own envelope for both
-(`{code, message, details, timestamp}`, `UNAUTHENTICATED`/`ACCESS_DENIED`)
-so the frontend's existing error handling works unchanged.
+Full request/response contracts (including what changed from the original
+spec, and why) live in this service's `context.md` — treat this file as
+the frontend-facing summary of that.
+
+**Base URL (local):** `http://localhost:8092`
+**Eureka service name:** `KONECTA-STORES-AND-STOCK-SERVICE`
 
 ---
 
-## The one big model decision this spec assumes
+## Auth
 
-**One Merchant user can own multiple shops; every resource below (products,
-orders, hours, fiscal data, sales, receipts) belongs to a shop, not
-directly to the merchant.** This comes from `AGENTS.md` §6: *"One Merchant
-can create and manage multiple shops/store. His dashboard will be by
-shop."* Every endpoint after the shops list is scoped under
-`/merchant/shops/{shopId}/...`, and the backend must verify `{shopId}`
-belongs to the authenticated merchant on every call (`403` otherwise — same
-enforcement style as the Auth service's admin endpoints).
+`Authorization: Bearer <accessToken>` — the **same** access token the Auth
+service already issues. No new login/token mechanism.
 
-If this turns out to be wrong (e.g. backend wants one-shop-per-merchant for
-Phase 1 and multi-shop later), say so — it's the single decision that
-reshapes this whole contract the most, better to confirm before building.
+- Role `MERCHANT` required on every endpoint below except `GET
+  /api/v1/meta/categories` (public).
+- No token → `401`, code `UNAUTHENTICATED`.
+- Valid token, wrong role → `403`, code `ACCESS_DENIED`.
+- A `{shopId}` that exists but isn't owned by the caller → `404`, code
+  `SHOP_NOT_FOUND` (not `403` — avoids confirming the shop's existence to
+  a non-owner).
+- Error envelope, same shape as the Auth service's — `code` is a
+  machine-readable English identifier; **`message` and `details` are in
+  Portuguese** (this is a Portuguese-language product) rather than
+  English validation defaults:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Falha na validação do pedido",
+  "details": ["quantity: não pode ser negativo"],
+  "timestamp": "2026-09-02T21:13:36.003771Z"
+}
+```
+
+---
+
+## Confirmed: multi-shop model
+
+The multi-shop assumption from the original spec is confirmed and built
+exactly as proposed: one merchant owns N shops, every resource below is
+scoped under `/api/v1/merchant/shops/{shopId}/...`, and the backend
+verifies `{shopId}` belongs to `jwt.sub` on every call (`ROLE_ADMIN`
+bypasses this check; no admin-facing routes are exposed yet, but the
+underlying service methods already support it).
 
 ---
 
@@ -37,80 +60,95 @@ reshapes this whole contract the most, better to confirm before building.
 
 ### `GET /api/v1/merchant/shops` — list the caller's shops
 
-Powers the top-level `/merchant` dashboard (shop picker + at-a-glance
-cards) — return enough per shop to render a card without a follow-up call
-per shop.
-
 **Response `200 OK`**
 
 ```json
 [
   {
-    "id": "uuid",
-    "name": "Loja Central",
-    "logoUrl": "https://.../logo.png",
-    "isOpen": true,
-    "todaySalesTotal": 12500.0,
-    "pendingOrdersCount": 3,
-    "lowStockCount": 2
+    "id": "14b4dbe9-d975-4d75-9bb7-39118dcd5828",
+    "name": "Loja Real",
+    "logoUrl": null,
+    "isOpen": false,
+    "lowStockCount": 1
   }
 ]
 ```
 
+> **Changed from the original spec:** `todaySalesTotal` and
+> `pendingOrdersCount` are **not returned** — they require the
+> Orders/Payments database, which this service does not own (see
+> [What's not here](#whats-not-here)). Don't fake them client-side;
+> just don't render those two fields yet.
+
 ### `POST /api/v1/merchant/shops` — create a shop
 
-**Request body**
+**Request body** — unchanged from the original spec:
 
 | Field | Type | Notes |
 |---|---|---|
 | `name` | string | Required |
-| `nuit` | string | Mozambican tax id, required for invoices |
+| `nuit` | string | Optional at creation, but required (along with address/city/neighborhood) before the shop shows `status: "ACTIVE"` |
 | `address` | string | Required |
-| `city` | string | `"Maputo"` only, same constraint as user profiles |
-| `neighborhood` | string | Must match a seeded bairro (reuse `GET /api/v1/meta/neighborhoods` from the Auth service) |
-| `phone` | string | Same MZ mobile format as Auth |
-| `category` | string | See [Categories](#optional-get-apiv1metacategories) below |
+| `city` | string | Must be `"Maputo"` — anything else is `400 VALIDATION_ERROR` |
+| `neighborhood` | string | Free string for now (see [Categories/taxonomy note](#whats-not-here)) |
+| `phone` | string | Not yet validated against the MZ format Auth uses |
+| `categoryIds` | uuid[], optional | **Changed since the categories section below was written**: a store can now belong to **several** top-level categories (was a single free-string `category`). Ids come from `GET /api/v1/meta/categories`. Unknown id → `400 VALIDATION_ERROR`. |
 | `description` | string, optional | |
 
-**Response `201 Created`** — a `Shop` (see [data model](#shop)).
+**Response `201 Created`** — a [`Shop`](#shop). If `name` + `nuit` +
+`address` + `city` + `neighborhood` are all present, the shop is created
+`ACTIVE` immediately; otherwise it's `DRAFT` (see `status` /
+`activationReady` on the model — this is new versus the original spec,
+which didn't have an explicit status machine).
 
-**Errors**: `400 VALIDATION_ERROR`.
+**Errors**: `400 VALIDATION_ERROR` (missing required field, or `city` ≠
+`"Maputo"`).
 
 ### `GET /api/v1/merchant/shops/{shopId}` — full shop profile
 
-Fiscal + settings fields for `/merchant/settings/fiscal`.
+Returns the full [`Shop`](#shop) model.
 
-### `PATCH /api/v1/merchant/shops/{shopId}` — edit fiscal/profile fields
+### `PATCH /api/v1/merchant/shops/{shopId}` — edit profile fields
 
-Same field set as create, all optional/partial.
+Same field set as create, all optional/partial. Also accepts `logoUrl`,
+`coverUrl`, `acceptsPickup`, `acceptsDelivery` (new — not in the original
+spec's request body, but present on the `Shop` model). `categoryIds`
+**replaces** the full set when sent (omit to leave categories unchanged,
+send `[]` to clear all). If the shop was `DRAFT` and the edit fills in
+the last missing activation field, `status` flips to `ACTIVE`
+automatically as part of this call — no separate "activate" endpoint.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — manual open/pause override
 
-Lets a merchant temporarily close a shop even during posted hours (e.g.
-"paused, back in 30 min") — independent of the opening-hours schedule.
+Unchanged from the original spec.
 
 **Request body**: `{ "manuallyClosed": boolean, "reason": string? }`
 
-**Response `200 OK`** — updated `Shop`.
+**Response `200 OK`** — updated [`Shop`](#shop).
 
 ### `GET` / `PUT /api/v1/merchant/shops/{shopId}/hours` — opening hours
 
-**`PUT` request body** — full week, replace-all semantics (simpler than
-per-day PATCH for a settings-form UI):
+Unchanged from the original spec.
+
+**`PUT` request body** — full week, replace-all:
 
 ```json
 {
   "days": [
-    { "day": "MONDAY", "opensAt": "08:00", "closesAt": "18:00", "closed": false },
-    { "day": "SUNDAY", "opensAt": null, "closesAt": null, "closed": true }
+    { "day": "SEGUNDA", "opensAt": "08:00", "closesAt": "18:00", "closed": false },
+    { "day": "DOMINGO", "opensAt": null, "closesAt": null, "closed": true }
   ]
 }
 ```
 
-`GET` returns the same shape. The computed "is this shop open right now"
-value is what powers `isOpen` in the shops list above and (later) the
-Customer app's open/closed badge — compute it server-side from `hours` +
-the manual override, don't make every client reimplement that logic.
+`GET` returns the same shape. **`day` is Portuguese** (this changed from
+an earlier draft that used English `DayOfWeek` names like `MONDAY`) —
+one of `SEGUNDA, TERCA, QUARTA, QUINTA, SEXTA, SABADO, DOMINGO`,
+Monday-first, uppercase, no accents (same style as `category` codes).
+`isOpen` on the `Shop` model and shop-list cards is computed server-side
+from this schedule plus the manual override, evaluated in
+`Africa/Maputo` — confirmed working end-to-end, including overnight
+windows (e.g. `21:00`→`02:00`).
 
 ---
 
@@ -120,10 +158,24 @@ All under `/api/v1/merchant/shops/{shopId}/products`.
 
 ### `GET .../products` — list/search/paginate
 
-**Query params**: `query` (name contains), `category`, `active`
-(true/false), `lowStock` (true → only items at/under their threshold),
-`page`, `size`, `sort` — reuse the Auth service's `PageResponse<T>` shape
-for the response envelope, for consistency across services.
+**Query params**: `query` (name contains, case-insensitive), `categoryId`
+(uuid — matches products in any subcategory under that category),
+`subcategoryId` (uuid — exact match, takes precedence over `categoryId`
+if both given), `active` (`true`/`false`), `lowStock` (`true` → only
+items at/under their threshold), `page`, `size`, `sort`.
+
+**Response `200 OK`** — a page envelope (this service's own shape, not
+literally the Auth service's `PageResponse<T>`, but the same fields):
+
+```json
+{
+  "content": [ /* Product[] */ ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
 
 ### `POST .../products` — create
 
@@ -133,179 +185,158 @@ for the response envelope, for consistency across services.
 |---|---|---|
 | `name` | string | Required |
 | `description` | string | Required |
-| `category` | string | See [Categories](#optional-get-apiv1metacategories) |
-| `price` | number | **IVA-inclusive shelf price** — per `AGENTS.md` §5.4, catalog prices always include IVA; the base/IVA breakdown is a receipt/invoice-time concern, not a product field |
+| `subcategoryId` | uuid, optional | **Changed since the categories section below was written**: was a free-string `category`, now a reference to a product-level subcategory (see [Category taxonomy](#category-taxonomy)). Ids from `GET /api/v1/meta/categories/{categoryId}/subcategories`. Unknown id → `400 VALIDATION_ERROR`. |
+| `price` | number | IVA-inclusive, ≥ 0, required |
 | `stockQuantity` | integer | Required, ≥ 0 |
-| `lowStockThreshold` | integer, optional | Default server-side (e.g. 5) if omitted — drives `lowStock` filter and the dashboard's low-stock count |
-| `active` | boolean | Default `true` — an inactive product is hidden from the Customer catalog but keeps its order history |
+| `lowStockThreshold` | integer, optional | Defaults to `5` |
+| `active` | boolean | Default `true` |
+| `imageUrls` | string[], optional | See [Photos](#whats-not-here) |
+| `primaryImageUrl` | string, optional | |
 
-**Response `201 Created`** — a `Product` (see [data model](#product)). Photos
-are attached separately (see below) since this is a JSON body, not
-multipart.
+**Response `201 Created`** — a [`Product`](#product).
 
 ### `GET` / `PATCH .../products/{productId}` — detail / edit
 
-Same field set as create, partial on `PATCH`.
+Same field set as create (including `lowStockThreshold`), partial on
+`PATCH`. Note: there's currently no way to explicitly **clear** a
+product's `subcategoryId` via `PATCH` — omitting the field and sending
+`null` both mean "leave unchanged" (same limitation as every other
+optional field in this API).
 
-### `PATCH .../products/{productId}/active` — archive/restore
+### `PATCH .../products/{productId}/active?active=true|false` — archive/restore
 
-Query param `active=true|false`. Soft delete, not a hard `DELETE` — a
-product may be referenced by historical orders/receipts and must stay
-resolvable there even after being pulled from sale.
+Unchanged from the original spec. Query param, not a body.
 
 ### `PATCH .../products/{productId}/stock` — adjust stock
 
-**Request body**: `{ "quantity": integer }` — sets the **absolute** stock
-level (simplest for a stock-edit form; if the backend also wants
-delta-based adjustment for an audit trail, that's a nice-to-have, not a
-blocker — flag if you'd rather do it that way instead).
+**Request body**: `{ "quantity": integer }` — sets the **absolute**
+stock level, ≥ 0. Confirmed as implemented (no delta/audit-trail variant
+— an internal `StockMovement` history is recorded server-side for every
+adjustment, but there's no API to read it yet).
 
-### Photos
-
-### `POST .../products/{productId}/photos` — upload
-
-`multipart/form-data`, field name `file`. Returns the created photo
-so the UI can render it immediately.
-
-**Response `201 Created`**: `{ "id": "uuid", "url": "https://...", "isPrimary": boolean }`
-
-### `DELETE .../products/{productId}/photos/{photoId}` — remove
-
-### `PATCH .../products/{productId}/photos/{photoId}/primary` — set cover photo
-
-**Backend decision needed**: object storage target (S3-compatible bucket,
-CDN URL shape, max file size/format) — the frontend just needs a URL back
-per photo, doesn't care how it's stored.
-
----
-
-## 3. Orders (merchant-facing)
-
-All under `/api/v1/merchant/shops/{shopId}/orders`. Orders themselves are a
-platform-wide concept (Customer creates them, Courier fulfills delivery
-ones) — this section only covers what the **Merchant** dashboard needs to
-read/act on for orders belonging to its shop. The status enum is the
-platform-wide one from `AGENTS.md` §9:
-
-```
-CREATED → PAID → [PENDING_STORE_OPEN] → STORE_CONFIRMED → PREPARING → READY_FOR_PICKUP
-  → [COURIER_ASSIGNED → PICKED_UP → IN_TRANSIT] → DELIVERED
-(also: CANCELLED, REFUNDED)
-```
-
-Pickup orders skip the courier states entirely.
-
-### `GET .../orders` — list/filter
-
-**Query params**: `status`, `fulfillmentType` (`PICKUP`/`DELIVERY`),
-`from`/`to` (date range), `page`, `size`, `sort`.
-
-### `GET .../orders/{orderId}` — full detail
-
-Items, quantities, unit price, customer name + phone (merchant sees this
-immediately — the courier-phone-after-accept privacy rule in `AGENTS.md`
-§10 is courier-specific, not merchant-specific), fulfillment type, delivery
-address if applicable, payment method + status, totals (subtotal, delivery
-fee, total), and a `statusHistory: [{status, at}]` array so the UI can
-render a timeline the same way the Customer order-tracking screen will.
-
-### Status transitions — one endpoint per action (mirrors the Admin API's style)
-
-| Endpoint | Effect |
-|---|---|
-| `PATCH .../orders/{orderId}/accept` | → `STORE_CONFIRMED` |
-| `PATCH .../orders/{orderId}/reject` | → `CANCELLED`. Body: `{ "reason": string? }` |
-| `PATCH .../orders/{orderId}/prepare` | → `PREPARING` |
-| `PATCH .../orders/{orderId}/ready` | → `READY_FOR_PICKUP` |
-| `POST .../orders/{orderId}/validate-pickup` | Body: `{ "code": string }` — validates the customer's pickup QR/code (shown on the Customer app's order confirmation), marks the order `DELIVERED`. **Pickup orders only** — a `DELIVERY` order reaches `DELIVERED` via the (not-yet-built) Courier flow instead. |
-
-All should `400`/`409` on an illegal transition (e.g. `accept` on an
-already-`CANCELLED` order) — reuse `VALIDATION_ERROR`/a dedicated
-`ILLEGAL_STATUS_TRANSITION` code, backend's call which reads better.
-
----
-
-## 4. Dashboard summary
-
-### `GET /api/v1/merchant/shops/{shopId}/dashboard/summary`
-
-One aggregate call for the per-shop dashboard screen (avoids the frontend
-making 4+ calls to assemble one view).
+**Errors**: `400 VALIDATION_ERROR` on a negative quantity, e.g.:
 
 ```json
-{
-  "salesTodayTotal": 12500.0,
-  "ordersTodayCount": 14,
-  "ordersByStatus": { "STORE_CONFIRMED": 2, "PREPARING": 1, "READY_FOR_PICKUP": 1 },
-  "lowStockCount": 2,
-  "isOpen": true
-}
+{ "code": "VALIDATION_ERROR", "message": "Falha na validação do pedido",
+  "details": ["quantity: não pode ser negativo"], "timestamp": "..." }
 ```
 
 ---
 
-## 5. Sales summary
+## 3. Dashboard summary
 
-### `GET /api/v1/merchant/shops/{shopId}/sales/summary`
-
-**Query params**: `from`, `to` (dates), `granularity` (`day`/`week`/`month`).
+### `GET /api/v1/merchant/shops/{shopId}/dashboard/summary`
 
 **Response `200 OK`**
 
 ```json
 {
-  "totalRevenue": 87500.0,
-  "totalOrders": 62,
-  "averageTicket": 1411.29,
-  "series": [
-    { "period": "2026-08-27", "revenue": 12500.0, "orders": 14 }
-  ]
+  "isOpen": false,
+  "productCount": 1,
+  "activeProductCount": 1,
+  "lowStockCount": 1
 }
 ```
 
----
-
-## 6. Receipts — "Recebimentos por transação"
-
-Per-transaction ledger, distinct from the aggregate Sales summary above.
-Explicitly **not** a day-close/manual-payout screen — per `AGENTS.md` §5.6
-and §6, there is no "Fecho do Dia" UI, this is read-only reporting of
-splits the Payments API already computed.
-
-### `GET /api/v1/merchant/shops/{shopId}/receipts`
-
-**Query params**: `from`, `to`, `status` (`PAID`/`PENDING`/`REFUNDED`),
-`page`, `size`.
-
-**Response item shape**
-
-| Field | Type |
-|---|---|
-| `orderId` | uuid |
-| `date` | timestamp |
-| `grossAmount` | number |
-| `commissionAmount` | number (KONECTA's cut) |
-| `netAmount` | number (what the merchant actually receives) |
-| `paymentMethod` | `M_PESA` \| `E_MOLA` \| `VISA` \| `COD` |
-| `status` | `PAID` \| `PENDING` \| `REFUNDED` |
-
-### `GET .../receipts/{receiptId}` — single receipt detail
-
-Same shape as one list item, plus enough for a printable/downloadable
-receipt (shop fiscal fields, order line items, IVA breakdown — base +
-IVA amount, derived from `grossAmount` and the platform's fixed IVA rate,
-not something the merchant configures).
+> **Changed from the original spec:** `salesTodayTotal`,
+> `ordersTodayCount`, `ordersByStatus` are **not returned** — same reason
+> as the shop-list cards above (Orders/Payments-dependent, not owned
+> here). `productCount` / `activeProductCount` are new fields this
+> service can compute honestly.
 
 ---
 
-## Optional: `GET /api/v1/meta/categories`
+## Category taxonomy
 
-Product `category` needs a fixed taxonomy so the (not-yet-built) Customer
-catalog can browse/filter by category consistently — same pattern as
-`GET /api/v1/meta/neighborhoods` already does for bairros. If this doesn't
-exist yet, `category` can temporarily be a free string on `Product`, but
-flag that as tech debt — it'll need to become a real lookup before the
-Customer catalog ships.
+**This section replaces the old free-string `category` field entirely.**
+Categories are now a real, two-level, admin-managed taxonomy:
+
+- **Category** (top-level, store-facing) — e.g. `SUPERMERCADO`, `BELEZA`.
+  A shop can belong to **several** (`Shop.categories`, set via
+  `categoryIds` on create/update — see §1 above).
+- **Subcategory** (product-facing) — scoped to exactly one parent
+  Category, e.g. `LEGUMES_E_FRUTAS` under `SUPERMERCADO`. A product
+  references **one** subcategory (`Product.subcategoryId`).
+
+Both levels are enforced by real foreign keys now (an unknown id is
+`400 VALIDATION_ERROR`), not a free string.
+
+### `GET /api/v1/meta/categories` — public, no auth required
+
+Active top-level categories, for a shop-category picker.
+
+**Response `200 OK`**
+
+```json
+[
+  { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true },
+  { "id": "d604474a-b880-4bc4-83c2-7ce1054149eb", "code": "MODA", "name": "Moda", "sortOrder": 2, "active": true },
+  { "id": "5049977c-b938-4da5-9594-d07486195a55", "code": "ELETRONICA", "name": "Eletronica", "sortOrder": 3, "active": true },
+  { "id": "464d57b3-8b90-4bc0-ab0d-1f97d65c06ec", "code": "RESTAURANTE", "name": "Restaurante", "sortOrder": 4, "active": true },
+  { "id": "1450c832-1f9f-46ce-b6b9-d0974248be11", "code": "FARMACIA", "name": "Farmacia", "sortOrder": 5, "active": true },
+  { "id": "5a3ad256-2bb9-4cc7-988f-06bdbf690f9b", "code": "BELEZA", "name": "Beleza", "sortOrder": 6, "active": true },
+  { "id": "7836021c-87f4-4f85-a82b-7fde6e2614ff", "code": "CASA_E_JARDIM", "name": "Casa e Jardim", "sortOrder": 7, "active": true },
+  { "id": "1a4f40ec-342f-40f7-a209-8c45ac14d3f3", "code": "OUTROS", "name": "Outros", "sortOrder": 99, "active": true }
+]
+```
+
+Ids are stable per environment but not guaranteed identical across
+environments — always resolve them via this endpoint, don't hardcode.
+
+### `GET /api/v1/meta/categories/{categoryId}/subcategories` — public
+
+Active subcategories under one category, for a product-subcategory
+picker scoped to whichever top category the merchant picked for the
+shop (or is browsing).
+
+**Response `200 OK`**
+
+```json
+[
+  { "id": "9223fbef-3099-493f-917d-226a8ee6b8d8", "categoryId": "12a1aaae-42d6-413d-8a86-ab951482fb93",
+    "categoryCode": "SUPERMERCADO", "categoryName": "Supermercado",
+    "code": "LEGUMES_E_FRUTAS", "name": "Legumes e Frutas", "sortOrder": 1, "active": true }
+]
+```
+
+**Errors**: `404 CATEGORY_NOT_FOUND` for an unknown `categoryId`.
+
+### Admin CRUD for categories/subcategories — different audience
+
+Full create/edit/delete for both levels exists at
+`/api/v1/admin/categories` and
+`/api/v1/admin/categories/{categoryId}/subcategories`, but requires
+`ROLE_ADMIN` — this is **for the admin dashboard, not the merchant
+one**. Full contract in this service's `context.md` §2/§4. Not
+duplicated here since it's a different frontend's concern; flag if the
+merchant dashboard turns out to need any of it (e.g. a merchant
+requesting a new category) and it can be revisited.
+
+---
+
+## What's not here
+
+Everything below is **out of scope for this service**, per its
+`AGENTS.md` (Orders/Payments/Delivery are separate services, not this
+one). Nothing in these sections exists at `localhost:8092` — don't point
+the frontend at them yet.
+
+- **Orders** (`GET/PATCH .../orders/**`) — the whole merchant-facing
+  order list/detail/status-transition surface from the original spec.
+  Belongs to a future Orders service.
+- **Sales summary** (`GET .../sales/summary`) — needs the Orders/Payments
+  database.
+- **Receipts** (`GET .../receipts/**`) — Payments domain.
+- **Product photo upload** (`POST .../products/{id}/photos` multipart,
+  plus delete/set-primary) — binary object storage wasn't adopted for
+  this phase. Photos are instead plain URL fields on the product payload:
+  `imageUrls: string[]` and `primaryImageUrl: string`. The frontend
+  supplies URLs directly (e.g. from wherever it already hosts images);
+  there's no upload endpoint to hit.
+
+If/when any of these move to this service or a sibling one, this file
+will be updated and the frontend team told directly — don't build against
+guessed shapes for them.
 
 ---
 
@@ -313,71 +344,118 @@ Customer catalog ships.
 
 ### `Shop`
 
-| Field | Type |
-|---|---|
-| `id` | uuid |
-| `name` | string |
-| `nuit` | string |
-| `address` | string |
-| `city` | string |
-| `neighborhood` | string |
-| `phone` | string |
-| `category` | string |
-| `description` | string? |
-| `logoUrl` | string? |
-| `isOpen` | boolean (computed: hours + manual override) |
-| `manuallyClosed` | boolean |
-| `createdAt` | timestamp |
+```json
+{
+  "id": "14b4dbe9-d975-4d75-9bb7-39118dcd5828",
+  "name": "Loja Real",
+  "legalName": null,
+  "nuit": "400123456",
+  "email": null,
+  "phone": "+258841112223",
+  "address": "Av. 24 de Julho",
+  "city": "Maputo",
+  "neighborhood": "Central",
+  "categories": [
+    { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true }
+  ],
+  "description": null,
+  "logoUrl": null,
+  "coverUrl": null,
+  "status": "ACTIVE",
+  "isOpen": false,
+  "manuallyClosed": false,
+  "activationReady": true,
+  "acceptsPickup": true,
+  "acceptsDelivery": false,
+  "createdAt": "2026-09-02T21:13:00Z",
+  "updatedAt": "2026-09-02T21:13:00Z"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `name` | string | |
+| `legalName` | string? | New — optional, not on create/update body yet |
+| `nuit` | string? | |
+| `email` | string? | Not settable via any current endpoint |
+| `phone` | string? | |
+| `address` | string? | |
+| `city` | string? | |
+| `neighborhood` | string? | |
+| `categories` | `Category[]` | **Changed**: was a single free-string `category`; now a list (see [Category taxonomy](#category-taxonomy)). Set/replaced via `categoryIds` (uuid[]) on create/update. |
+| `description` | string? | |
+| `logoUrl` | string? | |
+| `coverUrl` | string? | New |
+| `status` | `DRAFT` \| `PENDING_REVIEW` \| `ACTIVE` \| `SUSPENDED` \| `CLOSED` | New — not in the original spec |
+| `isOpen` | boolean | Computed: hours + manual override + `status == ACTIVE` |
+| `manuallyClosed` | boolean | |
+| `activationReady` | boolean | New — true once name/nuit/address/city/neighborhood are all set |
+| `acceptsPickup` | boolean | New, default `true` |
+| `acceptsDelivery` | boolean | New, default `false` |
+| `createdAt` | timestamp | |
+| `updatedAt` | timestamp | New |
 
 ### `Product`
 
-| Field | Type |
-|---|---|
-| `id` | uuid |
-| `shopId` | uuid |
-| `name` | string |
-| `description` | string |
-| `category` | string |
-| `price` | number (IVA-inclusive) |
-| `stockQuantity` | integer |
-| `lowStockThreshold` | integer |
-| `active` | boolean |
-| `photos` | `{ id, url, isPrimary }[]` |
-| `createdAt` | timestamp |
+```json
+{
+  "id": "53e7bdd1-ce94-4771-9a8a-f62c478e340c",
+  "shopId": "14b4dbe9-d975-4d75-9bb7-39118dcd5828",
+  "name": "Arroz 5kg",
+  "description": "Arroz agulha",
+  "subcategoryId": "9223fbef-3099-493f-917d-226a8ee6b8d8",
+  "subcategoryName": "Legumes e Frutas",
+  "categoryId": "12a1aaae-42d6-413d-8a86-ab951482fb93",
+  "categoryName": "Supermercado",
+  "price": 350.00,
+  "stockQuantity": 20,
+  "lowStockThreshold": 5,
+  "active": true,
+  "lowStock": false,
+  "imageUrls": [],
+  "primaryImageUrl": null,
+  "createdAt": "2026-09-02T21:13:35Z",
+  "updatedAt": "2026-09-02T21:13:36Z"
+}
+```
 
-### `MerchantOrder`
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `shopId` | uuid | |
+| `name` | string | |
+| `description` | string | |
+| `subcategoryId` | uuid? | **Changed**: was a free-string `category`; now a reference to a product-level subcategory (see [Category taxonomy](#category-taxonomy)). Set via `subcategoryId` on create/update. |
+| `subcategoryName` | string? | Denormalized, read-only |
+| `categoryId` | uuid? | Denormalized from the subcategory's parent category, read-only |
+| `categoryName` | string? | Denormalized, read-only |
+| `price` | number | IVA-inclusive |
+| `stockQuantity` | integer | |
+| `lowStockThreshold` | integer | |
+| `active` | boolean | |
+| `lowStock` | boolean | New — server-computed, `stockQuantity <= lowStockThreshold` |
+| `imageUrls` | string[] | Replaces the original spec's `photos: {id,url,isPrimary}[]` — see [What's not here](#whats-not-here) |
+| `primaryImageUrl` | string? | Replaces per-photo `isPrimary` flag |
+| `createdAt` | timestamp | |
+| `updatedAt` | timestamp | New |
 
-| Field | Type |
-|---|---|
-| `id` | uuid |
-| `shopId` | uuid |
-| `status` | see enum above |
-| `fulfillmentType` | `PICKUP` \| `DELIVERY` |
-| `items` | `{ productId, name, quantity, unitPrice }[]` |
-| `subtotal` / `deliveryFee` / `total` | number |
-| `customerName` / `customerPhone` | string |
-| `deliveryAddress` | string? (delivery only) |
-| `paymentMethod` | `M_PESA` \| `E_MOLA` \| `VISA` \| `COD` |
-| `paymentStatus` | `PAID` \| `PENDING` \| `REFUNDED` |
-| `statusHistory` | `{ status, at }[]` |
-| `createdAt` | timestamp |
+### `Category`
+
+`{ id, code, name, sortOrder, active }`
 
 ---
 
-## Open questions for the backend team
+## Verified live
 
-1. **Multi-shop confirmed?** See the model decision at the top — this is
-   the one thing worth a second look before implementing.
-2. **Which service(s) own this?** Presented here as one logical surface
-   (`/merchant/...`), but Products/Orders/Payments are plausibly separate
-   microservices already on your roadmap — the contract above doesn't
-   assume either way, split it however makes sense operationally.
-3. **Object storage for product photos** — no opinion here, just need a
-   URL back per uploaded photo.
-4. **Category taxonomy** — fixed list via a meta endpoint (preferred, for
-   Customer-catalog consistency later) vs. free string for now.
-5. **Stock adjustment** — absolute set (`PATCH .../stock`) vs. delta-based
-   with an audit trail. Either works for the frontend; flag if you'd rather
-   do the latter.
-6. **IVA rate** — assumed fixed/platform-wide, not merchant-configurable.
-   Confirm, since it affects whether `Shop` needs an `ivaRate` field.
+Everything in this document has been exercised end-to-end against a
+running instance using **real JWTs issued by KONECTA-SECURITY-SERVICE**
+(not synthetic test tokens) — including this revision's category
+taxonomy: admin creates a category and subcategory → merchant token
+gets `403` on the same admin endpoint → public reads reflect the new
+category/subcategory → merchant creates a shop with `categoryIds` →
+merchant creates a product with `subcategoryId`, response correctly
+carries denormalized `subcategoryName`/`categoryId`/`categoryName`. Plus
+the original flow: shop create → auto-activation → product create →
+low-stock flag → dashboard summary → stock adjust → negative-stock
+rejection → 401/403 boundaries. All matched this document.

@@ -1,25 +1,46 @@
 package com.konecta.stores_stock_service.catalog;
 
 import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
+import com.konecta.stores_stock_service.catalog.dto.SubcategoryResponse;
+import com.konecta.stores_stock_service.common.ApiException;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Public, active-only category reads for pickers (shop category, product
+ * subcategory). Admin CRUD lives under {@link CategoryAdminController} /
+ * {@link SubcategoryAdminController}.
+ */
 @RestController
 @RequestMapping("/api/v1/meta/categories")
 public class CategoryController {
 
     private final CategoryRepository categoryRepository;
+    private final SubcategoryRepository subcategoryRepository;
 
-    public CategoryController(CategoryRepository categoryRepository) {
+    public CategoryController(CategoryRepository categoryRepository, SubcategoryRepository subcategoryRepository) {
         this.categoryRepository = categoryRepository;
+        this.subcategoryRepository = subcategoryRepository;
     }
 
     @GetMapping
     public List<CategoryResponse> list() {
         return categoryRepository.findByActiveTrueOrderBySortOrderAsc().stream()
-                .map(c -> new CategoryResponse(c.getCode(), c.getName(), c.getSortOrder()))
+                .map(c -> new CategoryResponse(c.getId(), c.getCode(), c.getName(), c.getSortOrder(), c.isActive()))
+                .toList();
+    }
+
+    @GetMapping("/{categoryId}/subcategories")
+    public List<SubcategoryResponse> subcategories(@PathVariable UUID categoryId) {
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> ApiException.notFound("CATEGORY_NOT_FOUND", "Categoria não encontrada"));
+        return subcategoryRepository.findByCategoryIdAndActiveTrueOrderBySortOrderAsc(categoryId).stream()
+                .map(s -> new SubcategoryResponse(s.getId(), category.getId(), category.getCode(), category.getName(),
+                        s.getCode(), s.getName(), s.getSortOrder(), s.isActive()))
                 .toList();
     }
 }

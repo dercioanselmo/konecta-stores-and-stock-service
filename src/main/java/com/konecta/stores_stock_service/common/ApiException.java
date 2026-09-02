@@ -25,7 +25,7 @@ public class ApiException extends RuntimeException {
     }
 
     public static ApiException validation(List<String> details) {
-        return new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", details);
+        return new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Falha na validação do pedido", details);
     }
 
     public static ApiException conflict(String code, String message) {

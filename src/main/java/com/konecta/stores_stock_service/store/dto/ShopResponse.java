@@ -1,7 +1,9 @@
 package com.konecta.stores_stock_service.store.dto;
 
+import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.store.StoreStatus;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record ShopResponse(
@@ -14,7 +16,7 @@ public record ShopResponse(
         String address,
         String city,
         String neighborhood,
-        String category,
+        List<CategoryResponse> categories,
         String description,
         String logoUrl,
         String coverUrl,

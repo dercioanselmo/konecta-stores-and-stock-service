@@ -11,6 +11,7 @@ import com.konecta.stores_stock_service.inventory.InventoryService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -25,21 +26,33 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final InventoryService inventoryService;
+    private final SubcategoryRepository subcategoryRepository;
+    private final CategoryRepository categoryRepository;
 
-    public ProductService(ProductRepository productRepository, InventoryService inventoryService) {
+    public ProductService(ProductRepository productRepository, InventoryService inventoryService,
+            SubcategoryRepository subcategoryRepository, CategoryRepository categoryRepository) {
         this.productRepository = productRepository;
         this.inventoryService = inventoryService;
+        this.subcategoryRepository = subcategoryRepository;
+        this.categoryRepository = categoryRepository;
     }
 
-    public PageResponse<ProductResponse> list(UUID shopId, String query, String category, Boolean active,
-            Boolean lowStock, Pageable pageable) {
+    public PageResponse<ProductResponse> list(UUID shopId, String query, UUID categoryId, UUID subcategoryId,
+            Boolean active, Boolean lowStock, Pageable pageable) {
         Specification<Product> spec = (root, cq, cb) -> cb.equal(root.get("storeId"), shopId);
         if (query != null && !query.isBlank()) {
             String like = "%" + query.toLowerCase() + "%";
             spec = spec.and((root, cq, cb) -> cb.like(cb.lower(root.get("name")), like));
         }
-        if (category != null && !category.isBlank()) {
-            spec = spec.and((root, cq, cb) -> cb.equal(root.get("categoryCode"), category));
+        if (subcategoryId != null) {
+            spec = spec.and((root, cq, cb) -> cb.equal(root.get("subcategoryId"), subcategoryId));
+        } else if (categoryId != null) {
+            List<UUID> subcategoryIds = subcategoryRepository.findByCategoryIdOrderBySortOrderAsc(categoryId).stream()
+                    .map(Subcategory::getId)
+                    .toList();
+            spec = spec.and((root, cq, cb) -> subcategoryIds.isEmpty()
+                    ? cb.disjunction()
+                    : root.get("subcategoryId").in(subcategoryIds));
         }
         if (active != null) {
             spec = active
@@ -70,7 +83,7 @@ public class ProductService {
         product.setStoreId(shopId);
         product.setName(request.name());
         product.setDescription(request.description());
-        product.setCategoryCode(request.category());
+        product.setSubcategoryId(requireValidSubcategory(request.subcategoryId()));
         product.setPrice(request.price());
         product.setStatus(request.active() == null || request.active() ? ProductStatus.ACTIVE : ProductStatus.INACTIVE);
         if (request.imageUrls() != null) {
@@ -98,8 +111,8 @@ public class ProductService {
         if (request.description() != null) {
             product.setDescription(request.description());
         }
-        if (request.category() != null) {
-            product.setCategoryCode(request.category());
+        if (request.subcategoryId() != null) {
+            product.setSubcategoryId(requireValidSubcategory(request.subcategoryId()));
         }
         if (request.price() != null) {
             product.setPrice(request.price());
@@ -133,19 +146,48 @@ public class ProductService {
         return toResponse(product);
     }
 
+    private UUID requireValidSubcategory(UUID subcategoryId) {
+        if (subcategoryId == null) {
+            return null;
+        }
+        if (!subcategoryRepository.existsById(subcategoryId)) {
+            throw ApiException.validation(List.of("subcategoryId: subcategoria desconhecida"));
+        }
+        return subcategoryId;
+    }
+
     private Product getOwned(UUID shopId, UUID productId) {
         return productRepository.findByIdAndStoreId(productId, shopId)
-                .orElseThrow(() -> ApiException.notFound("PRODUCT_NOT_FOUND", "Product not found"));
+                .orElseThrow(() -> ApiException.notFound("PRODUCT_NOT_FOUND", "Produto não encontrado"));
     }
 
     private ProductResponse toResponse(Product product) {
         Inventory inventory = inventoryService.getByProductId(product.getId());
+
+        String subcategoryName = null;
+        UUID categoryId = null;
+        String categoryName = null;
+        if (product.getSubcategoryId() != null) {
+            Optional<Subcategory> subcategory = subcategoryRepository.findById(product.getSubcategoryId());
+            if (subcategory.isPresent()) {
+                subcategoryName = subcategory.get().getName();
+                Optional<Category> category = categoryRepository.findById(subcategory.get().getCategoryId());
+                if (category.isPresent()) {
+                    categoryId = category.get().getId();
+                    categoryName = category.get().getName();
+                }
+            }
+        }
+
         return new ProductResponse(
                 product.getId(),
                 product.getStoreId(),
                 product.getName(),
                 product.getDescription(),
-                product.getCategoryCode(),
+                product.getSubcategoryId(),
+                subcategoryName,
+                categoryId,
+                categoryName,
                 product.getPrice(),
                 inventory.getQuantityAvailable(),
                 inventory.getLowStockThreshold(),

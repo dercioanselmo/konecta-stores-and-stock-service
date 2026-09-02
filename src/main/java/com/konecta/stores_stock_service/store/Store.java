@@ -54,8 +54,6 @@ public class Store {
 
     private Double longitude;
 
-    private String category;
-
     private String description;
 
     @Enumerated(EnumType.STRING)

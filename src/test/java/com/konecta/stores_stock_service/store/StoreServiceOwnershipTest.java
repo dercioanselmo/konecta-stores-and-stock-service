@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import com.konecta.stores_stock_service.catalog.CategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
 import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
 import java.util.Optional;
@@ -19,12 +20,17 @@ class StoreServiceOwnershipTest {
     @Mock
     private StoreRepository storeRepository;
     @Mock
+    private StoreCategoryRepository storeCategoryRepository;
+    @Mock
+    private CategoryRepository categoryRepository;
+    @Mock
     private OpeningHoursService openingHoursService;
     @Mock
     private LowStockCounter lowStockCounter;
 
     private StoreService service() {
-        return new StoreService(storeRepository, openingHoursService, lowStockCounter);
+        return new StoreService(storeRepository, storeCategoryRepository, categoryRepository, openingHoursService,
+                lowStockCounter);
     }
 
     @Test

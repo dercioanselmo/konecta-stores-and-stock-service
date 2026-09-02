@@ -43,8 +43,8 @@ public class Product {
 
     private String slug;
 
-    @Column(name = "category_code")
-    private String categoryCode;
+    @Column(name = "subcategory_id")
+    private UUID subcategoryId;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal price;

@@ -1,5 +1,8 @@
 package com.konecta.stores_stock_service.store;
 
+import com.konecta.stores_stock_service.catalog.Category;
+import com.konecta.stores_stock_service.catalog.CategoryRepository;
+import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.common.ApiException;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
@@ -7,6 +10,7 @@ import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
 import com.konecta.stores_stock_service.store.dto.UpdateShopRequest;
 import com.konecta.stores_stock_service.store.hours.OpeningHoursService;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -18,12 +22,17 @@ public class StoreService {
     private static final String MAPUTO_CITY = "Maputo";
 
     private final StoreRepository storeRepository;
+    private final StoreCategoryRepository storeCategoryRepository;
+    private final CategoryRepository categoryRepository;
     private final OpeningHoursService openingHoursService;
     private final LowStockCounter lowStockCounter;
 
-    public StoreService(StoreRepository storeRepository, OpeningHoursService openingHoursService,
+    public StoreService(StoreRepository storeRepository, StoreCategoryRepository storeCategoryRepository,
+            CategoryRepository categoryRepository, OpeningHoursService openingHoursService,
             LowStockCounter lowStockCounter) {
         this.storeRepository = storeRepository;
+        this.storeCategoryRepository = storeCategoryRepository;
+        this.categoryRepository = categoryRepository;
         this.openingHoursService = openingHoursService;
         this.lowStockCounter = lowStockCounter;
     }
@@ -37,7 +46,7 @@ public class StoreService {
     @Transactional
     public ShopResponse create(String ownerUserId, CreateShopRequest request) {
         if (!MAPUTO_CITY.equalsIgnoreCase(request.city())) {
-            throw ApiException.validation(List.of("city: only \"Maputo\" is supported in this phase"));
+            throw ApiException.validation(List.of("city: apenas \"Maputo\" é suportada nesta fase"));
         }
         Store store = new Store();
         store.setOwnerUserId(ownerUserId);
@@ -47,20 +56,20 @@ public class StoreService {
         store.setCity(request.city());
         store.setNeighborhood(request.neighborhood());
         store.setPhone(request.phone());
-        store.setCategory(request.category());
         store.setDescription(request.description());
         store.setStatus(store.meetsActivationRequirements() ? StoreStatus.ACTIVE : StoreStatus.DRAFT);
         store = storeRepository.save(store);
+        replaceCategories(store.getId(), request.categoryIds());
         return toResponse(store);
     }
 
     public Store getOwned(UUID shopId, String ownerUserId, boolean isAdmin) {
         if (isAdmin) {
             return storeRepository.findById(shopId)
-                    .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Shop not found"));
+                    .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
         }
         return storeRepository.findByIdAndOwnerUserId(shopId, ownerUserId)
-                .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Shop not found"));
+                .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
     }
 
     public ShopResponse getProfile(UUID shopId, String ownerUserId, boolean isAdmin) {
@@ -81,7 +90,7 @@ public class StoreService {
         }
         if (request.city() != null) {
             if (!MAPUTO_CITY.equalsIgnoreCase(request.city())) {
-                throw ApiException.validation(List.of("city: only \"Maputo\" is supported in this phase"));
+                throw ApiException.validation(List.of("city: apenas \"Maputo\" é suportada nesta fase"));
             }
             store.setCity(request.city());
         }
@@ -91,8 +100,8 @@ public class StoreService {
         if (request.phone() != null) {
             store.setPhone(request.phone());
         }
-        if (request.category() != null) {
-            store.setCategory(request.category());
+        if (request.categoryIds() != null) {
+            replaceCategories(store.getId(), request.categoryIds());
         }
         if (request.description() != null) {
             store.setDescription(request.description());
@@ -123,6 +132,35 @@ public class StoreService {
         return toResponse(store);
     }
 
+    private void replaceCategories(UUID storeId, List<UUID> categoryIds) {
+        storeCategoryRepository.deleteByStoreId(storeId);
+        if (categoryIds == null || categoryIds.isEmpty()) {
+            return;
+        }
+        List<UUID> distinctIds = categoryIds.stream().distinct().toList();
+        List<String> unknown = distinctIds.stream()
+                .filter(id -> !categoryRepository.existsById(id))
+                .map(UUID::toString)
+                .toList();
+        if (!unknown.isEmpty()) {
+            throw ApiException.validation(List.of("categoryIds: categoria(s) desconhecida(s): " + String.join(", ", unknown)));
+        }
+        storeCategoryRepository.saveAll(distinctIds.stream().map(id -> new StoreCategory(storeId, id)).toList());
+    }
+
+    private List<CategoryResponse> categoriesOf(UUID storeId) {
+        List<UUID> categoryIds = storeCategoryRepository.findByStoreId(storeId).stream()
+                .map(StoreCategory::getCategoryId)
+                .toList();
+        if (categoryIds.isEmpty()) {
+            return List.of();
+        }
+        return categoryRepository.findAllById(categoryIds).stream()
+                .sorted(Comparator.comparing(Category::getSortOrder))
+                .map(c -> new CategoryResponse(c.getId(), c.getCode(), c.getName(), c.getSortOrder(), c.isActive()))
+                .toList();
+    }
+
     private ShopCardResponse toCard(Store store) {
         boolean open = isOpen(store);
         long lowStock = lowStockCounter.countLowStock(store.getId());
@@ -140,7 +178,7 @@ public class StoreService {
                 store.getAddressLine(),
                 store.getCity(),
                 store.getNeighborhood(),
-                store.getCategory(),
+                categoriesOf(store.getId()),
                 store.getDescription(),
                 store.getLogoUrl(),
                 store.getCoverUrl(),

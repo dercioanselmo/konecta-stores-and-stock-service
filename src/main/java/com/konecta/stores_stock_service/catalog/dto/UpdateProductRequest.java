@@ -3,12 +3,13 @@ package com.konecta.stores_stock_service.catalog.dto;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 public record UpdateProductRequest(
         String name,
         String description,
-        String category,
-        @DecimalMin(value = "0", inclusive = true) BigDecimal price,
+        UUID subcategoryId,
+        @DecimalMin(value = "0", inclusive = true, message = "não pode ser negativo") BigDecimal price,
         Integer lowStockThreshold,
         Boolean active,
         List<String> imageUrls,

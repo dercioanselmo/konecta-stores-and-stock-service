@@ -6,13 +6,16 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 public record CreateProductRequest(
-        @NotBlank String name,
-        @NotBlank String description,
-        String category,
-        @NotNull @DecimalMin(value = "0", inclusive = true) BigDecimal price,
-        @NotNull @Min(0) Integer stockQuantity,
+        @NotBlank(message = "não pode estar em branco") String name,
+        @NotBlank(message = "não pode estar em branco") String description,
+        UUID subcategoryId,
+        @NotNull(message = "é obrigatório")
+        @DecimalMin(value = "0", inclusive = true, message = "não pode ser negativo") BigDecimal price,
+        @NotNull(message = "é obrigatório")
+        @Min(value = 0, message = "não pode ser negativo") Integer stockQuantity,
         Integer lowStockThreshold,
         Boolean active,
         List<String> imageUrls,

@@ -1,4 +1,6 @@
 package com.konecta.stores_stock_service.catalog.dto;
 
-public record CategoryResponse(String code, String name, int sortOrder) {
+import java.util.UUID;
+
+public record CategoryResponse(UUID id, String code, String name, int sortOrder, boolean active) {
 }

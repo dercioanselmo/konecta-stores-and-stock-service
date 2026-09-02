@@ -26,13 +26,13 @@ public final class RestAuthEntryPoints {
     public static AuthenticationEntryPoint unauthenticated(ObjectMapper objectMapper) {
         return (HttpServletRequest request, HttpServletResponse response, AuthenticationException ex) ->
                 write(response, objectMapper, HttpStatus.UNAUTHORIZED,
-                        ApiError.of("UNAUTHENTICATED", "Authentication required", List.of()));
+                        ApiError.of("UNAUTHENTICATED", "Autenticação necessária", List.of()));
     }
 
     public static AccessDeniedHandler accessDenied(ObjectMapper objectMapper) {
         return (HttpServletRequest request, HttpServletResponse response, AccessDeniedException ex) ->
                 write(response, objectMapper, HttpStatus.FORBIDDEN,
-                        ApiError.of("ACCESS_DENIED", "You do not have access to this resource", List.of()));
+                        ApiError.of("ACCESS_DENIED", "Não tem acesso a este recurso", List.of()));
     }
 
     private static void write(HttpServletResponse response, ObjectMapper objectMapper, HttpStatus status,

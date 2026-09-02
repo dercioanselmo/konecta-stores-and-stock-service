@@ -36,7 +36,7 @@ class InventoryServiceTest {
         assertThatThrownBy(() -> service.setAbsoluteQuantity(productId, -1, "user-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting(t -> ((ApiException) t).getDetails())
-                .satisfies(details -> assertThat(details.toString()).contains("must not be negative"));
+                .satisfies(details -> assertThat(details.toString()).contains("não pode ser negativo"));
     }
 
     @Test

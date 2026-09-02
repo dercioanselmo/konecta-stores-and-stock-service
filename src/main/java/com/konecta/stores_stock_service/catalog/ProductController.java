@@ -39,12 +39,13 @@ public class ProductController {
     @GetMapping
     public PageResponse<ProductResponse> list(Authentication authentication, @PathVariable UUID shopId,
             @RequestParam(required = false) String query,
-            @RequestParam(required = false) String category,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) UUID subcategoryId,
             @RequestParam(required = false) Boolean active,
             @RequestParam(required = false) Boolean lowStock,
             Pageable pageable) {
         assertOwned(authentication, shopId);
-        return productService.list(shopId, query, category, active, lowStock, pageable);
+        return productService.list(shopId, query, categoryId, subcategoryId, active, lowStock, pageable);
     }
 
     @PostMapping

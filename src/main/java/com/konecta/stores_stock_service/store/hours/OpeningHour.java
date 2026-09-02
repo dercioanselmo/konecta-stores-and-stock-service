@@ -7,7 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.UUID;
 import lombok.Getter;
@@ -32,7 +31,7 @@ public class OpeningHour {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "day_of_week", nullable = false)
-    private DayOfWeek dayOfWeek;
+    private WeekDay dayOfWeek;
 
     @Column(name = "opens_at")
     private LocalTime opensAt;
@@ -42,7 +41,7 @@ public class OpeningHour {
 
     private boolean closed = false;
 
-    public OpeningHour(UUID storeId, DayOfWeek dayOfWeek, LocalTime opensAt, LocalTime closesAt, boolean closed) {
+    public OpeningHour(UUID storeId, WeekDay dayOfWeek, LocalTime opensAt, LocalTime closesAt, boolean closed) {
         this.storeId = storeId;
         this.dayOfWeek = dayOfWeek;
         this.opensAt = opensAt;

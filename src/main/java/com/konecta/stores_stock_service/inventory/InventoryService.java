@@ -27,7 +27,7 @@ public class InventoryService implements LowStockCounter {
     @Transactional
     public Inventory createForProduct(UUID productId, int quantityAvailable, int lowStockThreshold) {
         if (quantityAvailable < 0) {
-            throw ApiException.validation(List.of("stockQuantity: must not be negative"));
+            throw ApiException.validation(List.of("stockQuantity: não pode ser negativo"));
         }
         Inventory inventory = new Inventory(productId, quantityAvailable, lowStockThreshold);
         return inventoryRepository.save(inventory);
@@ -35,7 +35,7 @@ public class InventoryService implements LowStockCounter {
 
     public Inventory getByProductId(UUID productId) {
         return inventoryRepository.findByProductId(productId)
-                .orElseThrow(() -> ApiException.notFound("INVENTORY_NOT_FOUND", "No inventory record for this product"));
+                .orElseThrow(() -> ApiException.notFound("INVENTORY_NOT_FOUND", "Não existe registo de stock para este produto"));
     }
 
     @Transactional
@@ -48,7 +48,7 @@ public class InventoryService implements LowStockCounter {
     @Transactional
     public Inventory setAbsoluteQuantity(UUID productId, int newQuantity, String actorUserId) {
         if (newQuantity < 0) {
-            throw ApiException.validation(List.of("quantity: must not be negative"));
+            throw ApiException.validation(List.of("quantity: não pode ser negativo"));
         }
         Inventory inventory = getByProductId(productId);
         int delta = newQuantity - inventory.getQuantityAvailable();
