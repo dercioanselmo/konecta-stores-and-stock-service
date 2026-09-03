@@ -470,6 +470,66 @@ class MerchantFlowIntegrationTest {
     }
 
     @Test
+    void shopLocation_persistsAndRejectsOutsideMaputo() throws Exception {
+        String owner = "owner-" + System.nanoTime();
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantToken(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Geo", "nuit": "111222333", "address": "Rua G",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+        String auth = merchantToken(owner);
+
+        // freshly created shop has no location yet
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude").value(org.hamcrest.Matchers.nullValue()));
+
+        // outside the Maputo bounding box -> rejected
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": 40.7128, \"longitude\": -74.0060 }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+
+        // inside Maputo -> saved and reflected on the next read
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": -25.9692, \"longitude\": 32.5732 }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude", is(-25.9692)))
+                .andExpect(jsonPath("$.longitude", is(32.5732)));
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude", is(-25.9692)));
+
+        // MERCHANT_STAFF cannot set location — shop-level setting, same as hours/status
+        String staffAuth = staffToken("staff-" + System.nanoTime(), shopId);
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", staffAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": -25.9692, \"longitude\": 32.5732 }"))
+                .andExpect(status().isForbidden());
+
+        // ADMIN can set location on a shop it doesn't own, same as the other shop-settings endpoints
+        String adminAuth = adminToken("admin-" + System.nanoTime());
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": -25.95, \"longitude\": 32.58 }"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void admin_canManageAnyShopButNotCreateOne() throws Exception {
         // Admin ask (see API_REFERENCE_MERCHANT_DASHBOARD.md's Admin access
         // section): same shop-management capabilities as the owning MERCHANT

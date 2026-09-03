@@ -316,6 +316,35 @@ belong to this shop.
 
 `.../cover/presign` and `.../cover` work identically, setting `coverUrl`.
 
+### `PATCH /api/v1/merchant/shops/{shopId}/location` — set the shop's GPS pin
+
+**Roles:** `MERCHANT` (owner), `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
+
+**New.** A dedicated endpoint, not folded into the profile `PATCH` — same
+pattern as `.../hours` having its own `PUT`, so the map-pin tab can save
+independently of the profile-fields tab.
+
+**Request body**: `{ "latitude": -25.9692, "longitude": 32.5732 }` — both
+fields required together (send both or neither call).
+
+**Response `200 OK`** — the updated [`Shop`](#shop), with `latitude`/
+`longitude` set.
+
+**Errors**: `400 VALIDATION_ERROR` if either field is missing, or if the
+point falls outside a generous Maputo-area bounding box (roughly
+lat `-26.3` to `-25.7`, lon `32.3` to `32.8` — covers the municipality
+plus Matola/KaTembe with margin, not a tight city-limits check):
+
+```json
+{ "code": "VALIDATION_ERROR", "message": "Falha na validação do pedido",
+  "details": ["latitude/longitude: localização fora da área de Maputo suportada"], "timestamp": "..." }
+```
+
+`latitude`/`longitude` are `null` on `Shop` until this is called at
+least once — **a missing location does not block `activationReady`**
+(proximity search isn't live yet; this may change once it ships, flagged
+here since it'd be a contract change to `activationReady` if it does).
+
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — manual open/pause override
 
 **Roles:** `MERCHANT` (owner), `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
@@ -664,6 +693,8 @@ guessed shapes for them.
   "address": "Av. 24 de Julho",
   "city": "Maputo",
   "neighborhood": "Central",
+  "latitude": null,
+  "longitude": null,
   "categories": [
     { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true }
   ],
@@ -692,6 +723,8 @@ guessed shapes for them.
 | `address` | string? | |
 | `city` | string? | |
 | `neighborhood` | string? | |
+| `latitude` | number? | New — `null` until set via `PATCH .../location`. Doesn't gate `activationReady` (see that endpoint's notes). |
+| `longitude` | number? | New — same as `latitude` |
 | `categories` | `Category[]` | **Changed**: was a single free-string `category`; now a list (see [Category taxonomy](#category-taxonomy)). Set/replaced via `categoryIds` (uuid[]) on create/update. |
 | `description` | string? | |
 | `logoUrl` | string? | |

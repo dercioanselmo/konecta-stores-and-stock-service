@@ -164,6 +164,31 @@ below for the full mechanics:
   `{ "key": "..." }` (the `key` from the presign step) → `200` → updated
   `Shop`, with `logoUrl`/`coverUrl` set to a fresh presigned GET URL.
 
+### `PATCH /api/v1/merchant/shops/{shopId}/location` — MERCHANT (owner) | ADMIN (any shop)
+
+Body: `{ "latitude": number, "longitude": number }`, both required
+together. `200` → updated `Shop`. `400 VALIDATION_ERROR` if either field
+is missing, or the point falls outside a loose Maputo-area bounding box
+(`lat ∈ [-26.3, -25.7]`, `lon ∈ [32.3, 32.8]` — covers the municipality
+plus Matola/KaTembe with margin; a sanity check against a wildly wrong
+pin, not a precise city-limits check, same spirit as `neighborhood` not
+being validated against a fixed list either). `Store.latitude`/
+`longitude` columns already existed in `V1__init.sql` unused since the
+original schema design — no new migration needed, just exposed them.
+
+Dedicated endpoint (not folded into the profile `PATCH`) per frontend
+request, matching the `.../hours` pattern of one `PUT`/`PATCH` per
+settings tab. `latitude`/`longitude` are `null` on `Shop` until this is
+called; **does not gate `activationReady`** — explicit product decision
+(proximity search isn't live in this phase) — flagged as something to
+revisit if/when proximity search ships, since that would be a breaking
+change to the `activationReady` contract for shops that never set a
+location. Regression-tested in
+`MerchantFlowIntegrationTest#shopLocation_persistsAndRejectsOutsideMaputo`
+(bounding-box rejection, persistence round-trip, `MERCHANT_STAFF` `403`,
+`ADMIN` bypass) — not yet re-verified against a live security-service
+JWT.
+
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner) | ADMIN (any shop)
 
 Body: `{ "manuallyClosed": boolean, "reason": string? }` — manual
@@ -414,9 +439,9 @@ service has nowhere to save it even if it wanted to.
 ### `Shop`
 
 `id, name, legalName, nuit, email, phone, address, city, neighborhood,
-categories: Category[], description, logoUrl, coverUrl, status, isOpen,
-manuallyClosed, activationReady, acceptsPickup, acceptsDelivery,
-createdAt, updatedAt`
+latitude, longitude, categories: Category[], description, logoUrl,
+coverUrl, status, isOpen, manuallyClosed, activationReady, acceptsPickup,
+acceptsDelivery, createdAt, updatedAt`
 
 ### `Category`
 

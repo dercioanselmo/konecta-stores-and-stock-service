@@ -15,6 +15,7 @@ import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
+import com.konecta.stores_stock_service.store.dto.UpdateShopLocationRequest;
 import com.konecta.stores_stock_service.store.dto.UpdateShopRequest;
 import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
 import com.konecta.stores_stock_service.store.model.Store;
@@ -34,6 +35,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreService {
 
     private static final String MAPUTO_CITY = "Maputo";
+
+    // Loose bounding box covering Maputo municipality plus its immediate
+    // metro area (Matola, KaTembe) — generous on purpose since neighborhood
+    // boundaries aren't validated against a fixed list either; this is a
+    // sanity check against wildly wrong pins (e.g. another country/continent),
+    // not a precise city-limits check.
+    private static final double MAPUTO_LAT_MIN = -26.3;
+    private static final double MAPUTO_LAT_MAX = -25.7;
+    private static final double MAPUTO_LON_MIN = 32.3;
+    private static final double MAPUTO_LON_MAX = 32.8;
 
     private final StoreRepository storeRepository;
     private final StoreCategoryRepository storeCategoryRepository;
@@ -236,6 +247,20 @@ public class StoreService {
         return toResponse(store);
     }
 
+    @Transactional
+    public ShopResponse updateLocation(UUID shopId, String ownerUserId, boolean isAdmin, UpdateShopLocationRequest request) {
+        Store store = getOwned(shopId, ownerUserId, isAdmin);
+        double lat = request.latitude();
+        double lon = request.longitude();
+        if (lat < MAPUTO_LAT_MIN || lat > MAPUTO_LAT_MAX || lon < MAPUTO_LON_MIN || lon > MAPUTO_LON_MAX) {
+            throw ApiException.validation(List.of(
+                    "latitude/longitude: localização fora da área de Maputo suportada"));
+        }
+        store.setLatitude(lat);
+        store.setLongitude(lon);
+        return toResponse(store);
+    }
+
     private void requireUploaded(String key) {
         if (!objectStorageService.exists(key)) {
             throw ApiException.validation(List.of("key: ficheiro não encontrado — confirme após o upload terminar"));
@@ -306,6 +331,8 @@ public class StoreService {
                 store.getAddressLine(),
                 store.getCity(),
                 store.getNeighborhood(),
+                store.getLatitude(),
+                store.getLongitude(),
                 categoriesOf(store.getId()),
                 store.getDescription(),
                 presignedUrlOrNull(store.getLogoKey()),

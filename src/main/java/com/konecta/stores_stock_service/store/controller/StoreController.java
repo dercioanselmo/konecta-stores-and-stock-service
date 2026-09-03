@@ -8,6 +8,7 @@ import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
+import com.konecta.stores_stock_service.store.dto.UpdateShopLocationRequest;
 import com.konecta.stores_stock_service.store.dto.UpdateShopRequest;
 import com.konecta.stores_stock_service.store.hours.dto.HoursResponse;
 import com.konecta.stores_stock_service.store.hours.dto.UpdateHoursRequest;
@@ -99,6 +100,13 @@ public class StoreController {
     public ShopResponse confirmCover(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ConfirmUploadRequest request) {
         return storeService.confirmCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
+    }
+
+    @PatchMapping("/{shopId}/location")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
+    public ShopResponse updateLocation(Authentication authentication, @PathVariable UUID shopId,
+            @Valid @RequestBody UpdateShopLocationRequest request) {
+        return storeService.updateLocation(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PatchMapping("/{shopId}/status")

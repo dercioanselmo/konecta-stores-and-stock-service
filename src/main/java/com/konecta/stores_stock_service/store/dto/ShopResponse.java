@@ -16,6 +16,8 @@ public record ShopResponse(
         String address,
         String city,
         String neighborhood,
+        Double latitude,
+        Double longitude,
         List<CategoryResponse> categories,
         String description,
         String logoUrl,
