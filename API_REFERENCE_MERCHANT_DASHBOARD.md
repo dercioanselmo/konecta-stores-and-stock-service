@@ -37,6 +37,15 @@ the frontend-facing summary of that.
 **Base URL (local):** `http://localhost:8092`
 **Eureka service name:** `KONECTA-STORES-AND-STOCK-SERVICE`
 
+**Swagger / OpenAPI is live** (springdoc): interactive docs at
+`http://localhost:8092/swagger-ui.html`, raw spec at
+`http://localhost:8092/v3/api-docs`. Both are public (no token needed to
+view them — you still need a real token to actually call anything from
+the "Try it out" panel). Useful as a live cross-check against this
+document, but this document is the one written for how the frontend
+actually consumes each endpoint — springdoc only reflects the Java method
+signatures, not usage notes like presign flows or Portuguese error text.
+
 ---
 
 ## Auth
@@ -329,6 +338,51 @@ has exactly one primary, never zero.
 #### `PATCH .../products/{productId}/photos/{photoId}/primary` — set cover photo
 
 No body. **Response `200 OK`**: `{ "id", "url", "isPrimary": true }`.
+
+---
+
+## User profile photo — different audience, read this carefully
+
+**New.** `POST /api/v1/users/me/photo/presign` and
+`POST /api/v1/users/me/photo` — **not** under `/merchant/shops/**`, and
+**not role-restricted to `MERCHANT`** — any authenticated user (customer,
+courier, admin, merchant) can call these, since a profile photo isn't a
+merchant-business concept.
+
+**Important — this service does not persist the result.** Stores-and-Stock
+has no user table (KONECTA-SECURITY-SERVICE owns user profiles). These two
+endpoints only get you a presigned upload URL and, after upload, hand back
+a presigned GET URL for the file. **Your frontend is responsible for then
+sending that URL to KONECTA-SECURITY-SERVICE** (e.g. `PATCH
+/api/v1/users/me` there, if/when that service adds a photo field — check
+its own reference doc) to actually save it on the user's profile. This
+service is just S3 plumbing here, not the system of record.
+
+Same presigned two-step pattern as everything else in this document:
+
+#### `POST /api/v1/users/me/photo/presign`
+
+**Request body**: `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only).
+
+**Response `200 OK`**: `{ "uploadUrl": "https://konecta-media-....s3.amazonaws.com/users/{userId}/xyz.jpg?X-Amz-...", "key": "users/{userId}/xyz.jpg", "expiresAt": "..." }`
+
+`{userId}` is the caller's own `sub` from their JWT — you can't presign
+into another user's folder. `PUT` the raw bytes to `uploadUrl` yourself,
+same rules as every other upload in this doc (matching `Content-Type`,
+not through this API, no `Authorization` header on that request).
+
+#### `POST /api/v1/users/me/photo`
+
+**Request body**: `{ "key": "users/{userId}/xyz.jpg" }` (the `key` from
+the presign response).
+
+**Response `200 OK`**: `{ "url": "https://....s3.amazonaws.com/...?X-Amz-..." }`
+— a presigned GET, 1 hour TTL, same as everywhere else. This is **not**
+persisted anywhere by this call; use it to show an immediate preview,
+then send it to the Security service to actually save.
+
+**Errors**: `400 VALIDATION_ERROR` if the object isn't in S3 yet, or if
+`key` doesn't belong to the caller.
 
 ---
 

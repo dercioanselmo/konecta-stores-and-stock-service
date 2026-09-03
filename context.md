@@ -35,6 +35,27 @@ compute honestly: `isOpen`, `lowStockCount`, `productCount`,
 `activeProductCount`. `salesTodayTotal`, `pendingOrdersCount`,
 `ordersByStatus` are omitted (Orders-dependent) rather than faked.
 
+**Swagger/OpenAPI is live** (springdoc, already on the classpath):
+`/swagger-ui.html` and `/v3/api-docs`, both `permitAll` in
+`SecurityConfig`. Reflects Java method signatures only — no presign-flow
+or Portuguese-error-text context, so this file stays the source of truth
+for *how* to call things, springdoc for *whether an endpoint exists*.
+
+**Fixed bug**: `PATCH .../shops/{id}` with `categoryIds` and `PUT
+.../hours` both do delete-then-insert (`replaceCategories`,
+`replaceHours`) inside one `@Transactional` method. Hibernate flushes
+all pending inserts before any pending deletes **regardless of Java call
+order** — so re-adding a row with the same unique key the store already
+had (the *normal* case: re-saving the same hours, or a `PATCH` that
+doesn't actually change categories) inserted before the old row was
+deleted, violating the unique constraint and surfacing as an unhandled
+`500`. Fixed with an explicit `repository.flush()` between the delete
+and the insert in both places. Caught via the new catch-all handler's
+logging (see above) during live frontend testing — regression-tested in
+`MerchantFlowIntegrationTest#reSubmittingUnchangedCategoriesAndHours_doesNotViolateUniqueConstraint`
+since this is real Hibernate flush-ordering behavior a mock can't
+reproduce, only a real Postgres via Testcontainers catches it.
+
 ## Auth
 
 - `Authorization: Bearer <accessToken>` — JWT issued by
@@ -255,9 +276,10 @@ signed URLs (`common.storage.S3ObjectStorageService`,
   `us-east-1` (`aws.region`).
 - Keys: `{aws.s3.products-prefix}{productId}/{uuid}.{ext}` for product
   photos, `{aws.s3.stores-prefix}{shopId}/logo|cover/{uuid}.{ext}` for
-  shop assets. The backend generates the key, not the client — a client
-  never gets to choose where in the bucket its file lands (see
-  `S3KeyFactory`).
+  shop assets, `{aws.s3.users-prefix}{userId}/{uuid}.{ext}` for user
+  profile photos (§5 below). The backend generates the key, not the
+  client — a client never gets to choose where in the bucket its file
+  lands (see `S3KeyFactory`).
 - `POST .../presign` → a presigned `PUT` URL, valid
   `aws.s3.presign-put-ttl-seconds` (300s default). The client uploads
   directly to S3 with this URL — this service is not in that request
@@ -284,6 +306,31 @@ signed URLs (`common.storage.S3ObjectStorageService`,
 See [§2 Category taxonomy](#2-category-taxonomy) — the only admin surface
 implemented so far. `AGENTS.md` §10 Slice G (store suspend/search) is
 still open.
+
+## 5. User profile photo — not merchant-scoped, no persistence here
+
+`/api/v1/users/me/photo/presign` and `/api/v1/users/me/photo` —
+**any authenticated role** (not `@PreAuthorize("hasRole('MERCHANT')")`
+like every other controller here), since a profile photo isn't a
+merchant-business concept. Added per direct request alongside the same
+S3 bucket the shop/product assets use, under a new `aws.s3.users-prefix`
+(`users/`) — deliberately a **new** prefix, not a repurposing of
+`aws.s3.products-prefix`, to avoid colliding with product photo keys.
+
+This service has **no user table** — KONECTA-SECURITY-SERVICE owns user
+profiles. `UserPhotoController` is pure S3 plumbing: presign, confirm
+(existence check + presigned GET back), nothing persisted. The frontend
+is responsible for then sending the resulting URL/key to
+KONECTA-SECURITY-SERVICE to actually save it on the profile — this
+service has nowhere to save it even if it wanted to.
+
+- `POST /api/v1/users/me/photo/presign` — body `{ contentType }` → `200`
+  `{ uploadUrl, key, expiresAt }`. Key is scoped to the caller's own
+  `jwt.sub` (`users/{sub}/{uuid}.ext`) — can't presign into another
+  user's folder.
+- `POST /api/v1/users/me/photo` — body `{ key }` → `200` `{ url }` (a
+  presigned GET). `400 VALIDATION_ERROR` if the object isn't in S3 yet
+  or `key` doesn't belong to the caller.
 
 ## Data models
 
