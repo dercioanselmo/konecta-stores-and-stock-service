@@ -8,11 +8,17 @@ own (Orders, Sales, Receipts) are called out explicitly — see
 [What's not here](#whats-not-here) — rather than removed, so the frontend
 knows what to stub vs. what to wire up now.
 
-**`MERCHANT_STAFF` access is now implemented and verified live** — see
+**`MERCHANT_STAFF` access is implemented and verified live** — see
 [MERCHANT_STAFF access](#merchant_staff-access) below for the exact
-read/write split. This was the one gap this doc flagged as backend-only
-work in the previous revision; it's done — re-verify whenever convenient,
-no frontend changes needed since the contract didn't change shape.
+read/write split.
+
+**`ADMIN` access to shop management is now implemented and verified
+live** — see [Admin access](#admin-access) below. This was the previous
+revision's `PROPOSED` section; both items it asked for
+(`GET /api/v1/admin/shops`, and widening the role gate on
+`/merchant/shops/**` to accept `ROLE_ADMIN`) are done — re-verify
+whenever convenient, no frontend changes needed since the contract
+matches what was proposed.
 
 **Product photo and shop logo/cover upload is now implemented — via a
 private S3 bucket, not a multipart endpoint on this service.** This is a
@@ -105,10 +111,11 @@ scopes the staff member to exactly that shop:
 
 | What | MERCHANT (owner) | MERCHANT_STAFF | ADMIN |
 |---|---|---|---|
-| Read own shop / products / dashboard | ✅ | ✅ (assigned shop only) | ✅ |
-| Create / edit shop, products, stock | ✅ | ❌ `403` | ✅ |
-| Upload logo / cover / photos | ✅ | ❌ `403` | ✅ |
-| Update hours / status | ✅ | ❌ `403` | ✅ |
+| Read own shop profile / hours / dashboard | ✅ | ✅ (assigned shop only) | ✅ (any shop) |
+| Edit shop profile, hours, status, logo/cover | ✅ | ❌ `403` | ✅ (any shop) |
+| Create / edit products, stock, product photos | ✅ | ✅ (assigned shop only) | ✅ (any shop) |
+| Create a brand-new shop | ✅ | ❌ `403` | ❌ `403` |
+| `GET /merchant/shops` (list "my shops") | ✅ | ✅ (single-item list) | ❌ `403` — use [`GET /api/v1/admin/shops`](#admin-access) instead |
 
 A staff token hitting a `{shopId}` other than the one in their JWT claim
 returns `404 SHOP_NOT_FOUND` (not `403` — same non-owner-confirmation
@@ -121,14 +128,88 @@ Per-endpoint role notes are inline throughout this document (search for
 
 ---
 
+## Admin access
+
+**Implemented and verified live** — this section previously described a
+proposal (see `git log` on this file for the original ask); both parts
+of it are done.
+
+An `ROLE_ADMIN` token gets the same shop-management capabilities as the
+owning `MERCHANT`, on **any** shop, without owning it — the
+`jwt.sub == shop.ownerId` ownership check is bypassed entirely for
+Admin. This covers shop profile/status/hours/logo/cover
+(reads and writes) and all product endpoints under
+`/api/v1/merchant/shops/{shopId}/**`, reusing the exact same paths and
+request/response shapes documented elsewhere in this file — nothing
+Admin-specific to build on the frontend beyond pointing existing
+merchant-dashboard components at these paths with an Admin token.
+
+**Two things stay off-limits for Admin, on purpose**:
+- **Creating a brand-new shop** (`POST /merchant/shops`) is still
+  `MERCHANT`-only — Admin manages *existing* shops, it doesn't create
+  shops on a merchant's behalf.
+- **`GET /merchant/shops`** (the "list shops I own/am assigned to"
+  endpoint) does not include Admin — it would return an empty list
+  anyway, since Admin owns no shops. Use the dedicated listing below
+  instead.
+- Staff management (`/merchant/staff/**`) stays explicitly out of scope
+  for Admin here too, same as for `MERCHANT` — that's the Security
+  service's concern, not this one.
+
+### `GET /api/v1/admin/shops` — every shop on the platform
+
+**Role:** `ADMIN` only.
+
+**Query params**: `query` (trade-name search, case-insensitive),
+`status` (one of `DRAFT`, `PENDING_REVIEW`, `ACTIVE`, `SUSPENDED`,
+`CLOSED`), `page`, `size`, `sort` (e.g. `createdAt,desc`).
+
+**Response `200 OK`** — standard page envelope (same shape as
+`GET .../products`):
+
+```json
+{
+  "content": [
+    {
+      "id": "14b4dbe9-d975-4d75-9bb7-39118dcd5828",
+      "name": "Loja Real",
+      "logoUrl": null,
+      "status": "ACTIVE",
+      "isOpen": false,
+      "ownerId": "auth0|abc123",
+      "ownerName": null,
+      "ownerEmail": null,
+      "createdAt": "2026-09-02T21:13:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+> **Known gap — `ownerName`/`ownerEmail` are always `null` for now.**
+> This service has no local copy of user profile data and no HTTP
+> client wired up yet to KONECTA-SECURITY-SERVICE to look owners up by
+> id (only `ownerId`, the JWT `sub` the shop was created under, is
+> available). If the Admin "Lojas" list needs the owner's name/email
+> rendered, the frontend's two options today are: (a) resolve `ownerId`
+> against the Security service's own admin user-lookup endpoint
+> client-side, or (b) ask this service to add that lookup — flag it and
+> it can be prioritized. Not blocking: `ownerId` alone is enough to
+> deep-link into `/admin/shops/{shopId}`.
+
+---
+
 ## Confirmed: multi-shop model
 
 The multi-shop assumption from the original spec is confirmed and built
 exactly as proposed: one merchant owns N shops, every resource below is
 scoped under `/api/v1/merchant/shops/{shopId}/...`, and the backend
 verifies `{shopId}` belongs to `jwt.sub` on every call (`ROLE_ADMIN`
-bypasses this check; no admin-facing routes are exposed yet, but the
-underlying service methods already support it).
+bypasses this check on any shop; see [Admin access](#admin-access)
+above).
 
 ---
 
@@ -196,7 +277,7 @@ Returns the full [`Shop`](#shop) model.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}` — edit profile fields
 
-**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
+**Roles:** `MERCHANT` (owner), `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
 
 Same field set as create, all optional/partial. Also accepts `logoUrl`,
 `coverUrl`, `acceptsPickup`, `acceptsDelivery` (new — not in the original
@@ -206,7 +287,7 @@ send `[]` to clear all). If the shop was `DRAFT` and the edit fills in
 the last missing activation field, `status` flips to `ACTIVE`
 automatically as part of this call — no separate "activate" endpoint.
 
-### Logo / cover upload — `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
+### Logo / cover upload — `MERCHANT` (owner) or `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
 
 Same pattern for both `logo` and `cover` (swap the path segment):
 
@@ -237,7 +318,7 @@ belong to this shop.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — manual open/pause override
 
-**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
+**Roles:** `MERCHANT` (owner), `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
 
 **Request body**: `{ "manuallyClosed": boolean, "reason": string? }`
 
@@ -249,7 +330,7 @@ belong to this shop.
 
 ### `PUT /api/v1/merchant/shops/{shopId}/hours` — replace opening hours
 
-**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
+**Roles:** `MERCHANT` (owner), `ADMIN` (any shop) — `MERCHANT_STAFF` → `403`
 
 **`PUT` request body** — full week, replace-all:
 
@@ -282,9 +363,11 @@ All under `/api/v1/merchant/shops/{shopId}/products`.
 is the one place `MERCHANT_STAFF` gets real write access: create, edit,
 stock adjust, active toggle, photo upload/delete/set-primary — same
 permissions as `MERCHANT` here, scoped to the one shop in their JWT's
-`shopId` claim. (Verified live: a staff token created a product,
-adjusted its stock, and presigned a photo upload, all `2xx`.) Contrast
-with §1 Shops — shop-level settings there stay `MERCHANT`-only.
+`shopId` claim; `ADMIN` gets the same on any shop, no ownership needed.
+(Verified live: a staff token created a product, adjusted its stock,
+and presigned a photo upload, all `2xx`.) Contrast with §1 Shops —
+shop-level *settings* there stay `MERCHANT`/`ADMIN`-only, no
+`MERCHANT_STAFF`.
 
 ### `GET .../products` — list/search/paginate
 
@@ -712,3 +795,22 @@ stock, and presigned a photo upload — all `2xx` — while `PATCH` on the
 shop profile stayed `403`. Swagger UI (`/swagger-ui.html`) and the raw
 spec (`/v3/api-docs`) were also confirmed reachable and listing every
 current endpoint, including the new photo/user-photo ones.
+
+**`ADMIN` shop-management access — implemented and covered by the
+automated integration suite, not yet re-verified against a live
+security-service JWT** (unlike the paragraphs above, this has not had a
+live curl round-trip in this pass — flagging that distinction
+honestly). The role gate on `/merchant/shops/**` and
+`/merchant/shops/{shopId}/products/**` now accepts `ROLE_ADMIN` and
+bypasses the ownership check on every endpoint except
+`POST /merchant/shops` (still `MERCHANT`-only) and
+`GET /merchant/shops` list (still `MERCHANT`/`MERCHANT_STAFF`-only —
+Admin uses the new `GET /api/v1/admin/shops` instead). A new test,
+`admin_canManageAnyShopButNotCreateOne`, exercises the full path with a
+synthetic `ROLE_ADMIN` JWT against the real Postgres-backed test stack
+(Testcontainers): read/edit shop profile, replace hours, create a
+product — all `2xx` on a shop the admin doesn't own — while shop
+creation and the "my shops" list both correctly stay `403`. Full suite:
+**32/32 tests pass.** Worth a live pass with a real Admin token from
+KONECTA-SECURITY-SERVICE before calling this fully closed, the same way
+`MERCHANT_STAFF` above was — ping when convenient.

@@ -80,7 +80,14 @@ reproduce, only a real Postgres via Testcontainers catches it.
   `{"message":""}` seen once during frontend testing.
 - `ROLE_MERCHANT` for every merchant-facing endpoint (§1–§3 below);
   ownership additionally checked per call (`store.owner_user_id == jwt.sub`).
-  `ROLE_ADMIN` bypasses the ownership check.
+  `ROLE_ADMIN` bypasses the ownership check entirely on every
+  `/merchant/shops/{shopId}/**` endpoint (profile, hours, status,
+  logo/cover, products) — same capabilities as the owning `MERCHANT`, on
+  any shop. Two exceptions stay `MERCHANT`-only even for Admin: creating
+  a brand-new shop (`POST /merchant/shops`) and the "list my shops"
+  endpoint (`GET /merchant/shops`, which would just be empty for an
+  Admin anyway — see `GET /api/v1/admin/shops` in §4 for the
+  Admin-scoped listing).
 - `ROLE_MERCHANT_STAFF` — reads everywhere a `MERCHANT` can, **plus full
   write access under `/merchant/shops/{shopId}/products/**`** (create,
   edit, stock adjust, active toggle, photos) for their one assigned
@@ -137,7 +144,7 @@ VALIDATION_ERROR`. `201` → full `Shop`.
 
 Full shop profile (fiscal + settings fields).
 
-### `PATCH /api/v1/merchant/shops/{shopId}` — MERCHANT (owner) only
+### `PATCH /api/v1/merchant/shops/{shopId}` — MERCHANT (owner) | ADMIN (any shop)
 
 Partial update of the same field set as create. `categoryIds`, when
 present, **replaces** the full set (same semantics as opening hours) —
@@ -145,7 +152,7 @@ omit the field to leave categories unchanged, send `[]` to clear them.
 Recomputes `ACTIVE` eligibility (trade name, NUIT, address, city,
 neighborhood present) and flips status automatically once all are set.
 
-### Logo / cover upload — MERCHANT (owner) only
+### Logo / cover upload — MERCHANT (owner) | ADMIN (any shop)
 
 Two-step presigned flow, same shape for both — see [Uploads](#uploads)
 below for the full mechanics:
@@ -157,7 +164,7 @@ below for the full mechanics:
   `{ "key": "..." }` (the `key` from the presign step) → `200` → updated
   `Shop`, with `logoUrl`/`coverUrl` set to a fresh presigned GET URL.
 
-### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner) only
+### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner) | ADMIN (any shop)
 
 Body: `{ "manuallyClosed": boolean, "reason": string? }` — manual
 open/pause override, independent of posted hours. `200` → updated `Shop`.
@@ -166,7 +173,7 @@ open/pause override, independent of posted hours. `200` → updated `Shop`.
 
 Returns the weekly schedule. Same shape as the `PUT` body below.
 
-### `PUT /api/v1/merchant/shops/{shopId}/hours` — MERCHANT (owner) only
+### `PUT /api/v1/merchant/shops/{shopId}/hours` — MERCHANT (owner) | ADMIN (any shop)
 
 Replaces the full week:
 
@@ -335,9 +342,47 @@ signed URLs (`common.storage.S3ObjectStorageService`,
 
 ## 4. Admin
 
-See [§2 Category taxonomy](#2-category-taxonomy) — the only admin surface
-implemented so far. `AGENTS.md` §10 Slice G (store suspend/search) is
-still open.
+See [§2 Category taxonomy](#2-category-taxonomy) for category/subcategory
+admin CRUD.
+
+**Shop management** — Admin gets the same capabilities as the owning
+`MERCHANT` on any shop (§1's `ADMIN`-tagged endpoints: profile, hours,
+status, logo/cover, plus all of §3 Products), ownership check bypassed.
+Two things stay `MERCHANT`-only even for Admin: creating a brand-new
+shop, and the "list my shops" endpoint (Admin uses the listing below
+instead).
+
+### `GET /api/v1/admin/shops` — ROLE_ADMIN only
+
+Every shop on the platform, not scoped to any owner. Query params:
+`query` (trade-name search, case-insensitive substring), `status` (one
+of `StoreStatus`), `page`, `size`, `sort`. `200` → standard `PageResponse`
+envelope, rows:
+
+```json
+{ "id", "name", "logoUrl", "status", "isOpen", "ownerId", "ownerName", "ownerEmail", "createdAt" }
+```
+
+`ownerName`/`ownerEmail` are always `null` — this service has no local
+user data and no HTTP client to KONECTA-SECURITY-SERVICE wired up to
+resolve them by id yet. `ownerId` (the JWT `sub` the shop was created
+under) is populated and sufficient to deep-link into
+`/admin/shops/{shopId}`. Wiring up the owner-lookup is a follow-up if the
+Admin UI needs it rendered.
+
+Backed by `StoreRepository` now extending `JpaSpecificationExecutor`;
+service method `StoreService.listForAdmin`.
+
+Regression-tested in
+`MerchantFlowIntegrationTest#admin_canManageAnyShopButNotCreateOne`
+(synthetic `ROLE_ADMIN` JWT against the Testcontainers Postgres stack —
+not yet re-verified against a live security-service-issued token, unlike
+the `MERCHANT_STAFF` fix above).
+
+`AGENTS.md` §10 Slice G store-suspend is still open (there's no explicit
+"suspend" action beyond `PATCH .../status`'s manual-close toggle and
+directly setting `status` via `PATCH /merchant/shops/{shopId}` — no
+dedicated admin suspend/reinstate endpoint with its own audit trail yet).
 
 ## 5. User profile photo — not merchant-scoped, no persistence here
 

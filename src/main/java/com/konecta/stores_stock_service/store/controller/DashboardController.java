@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/merchant/shops/{shopId}/dashboard")
-@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF', 'ADMIN')")
 public class DashboardController {
 
     private final StoreService storeService;

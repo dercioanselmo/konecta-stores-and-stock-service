@@ -10,6 +10,7 @@ import com.konecta.stores_stock_service.common.storage.S3KeyFactory;
 import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
 import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
 import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
+import com.konecta.stores_stock_service.store.dto.AdminShopSummaryResponse;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
@@ -21,9 +22,11 @@ import com.konecta.stores_stock_service.store.model.StoreCategory;
 import com.konecta.stores_stock_service.store.model.StoreStatus;
 import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
 import com.konecta.stores_stock_service.store.repository.StoreRepository;
+import com.konecta.stores_stock_service.common.PageResponse;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,6 +59,39 @@ public class StoreService {
         return storeRepository.findByOwnerUserId(ownerUserId).stream()
                 .map(this::toCard)
                 .toList();
+    }
+
+    /**
+     * ADMIN-only: every shop on the platform, not scoped to any owner.
+     * {@code ownerName}/{@code ownerEmail} are not populated here — this
+     * service has no local copy of user profile data and no client wired up
+     * yet to look them up from KONECTA-SECURITY-SERVICE by id; only
+     * {@code ownerId} (the JWT {@code sub} the shop was created under) is
+     * available today.
+     */
+    public PageResponse<AdminShopSummaryResponse> listForAdmin(String query, StoreStatus status, Pageable pageable) {
+        org.springframework.data.jpa.domain.Specification<Store> spec = (root, cq, cb) -> cb.conjunction();
+        if (query != null && !query.isBlank()) {
+            String like = "%" + query.toLowerCase() + "%";
+            spec = spec.and((root, cq, cb) -> cb.like(cb.lower(root.get("tradeName")), like));
+        }
+        if (status != null) {
+            spec = spec.and((root, cq, cb) -> cb.equal(root.get("status"), status));
+        }
+        return PageResponse.of(storeRepository.findAll(spec, pageable).map(this::toAdminSummary));
+    }
+
+    private AdminShopSummaryResponse toAdminSummary(Store store) {
+        return new AdminShopSummaryResponse(
+                store.getId(),
+                store.getTradeName(),
+                presignedUrlOrNull(store.getLogoKey()),
+                store.getStatus(),
+                isOpen(store),
+                store.getOwnerUserId(),
+                null,
+                null,
+                store.getCreatedAt());
     }
 
     @Transactional

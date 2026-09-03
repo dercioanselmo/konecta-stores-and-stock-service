@@ -470,6 +470,83 @@ class MerchantFlowIntegrationTest {
     }
 
     @Test
+    void admin_canManageAnyShopButNotCreateOne() throws Exception {
+        // Admin ask (see API_REFERENCE_MERCHANT_DASHBOARD.md's Admin access
+        // section): same shop-management capabilities as the owning MERCHANT
+        // — read, edit, hours, status, logo/cover, products — for any shop,
+        // without owning it. Creating brand-new shops stays MERCHANT-only.
+        String owner = "owner-" + System.nanoTime();
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantToken(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Admin", "nuit": "555666777", "address": "Rua A",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String adminAuth = adminToken("admin-" + System.nanoTime());
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", adminAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(shopId)));
+
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"description\": \"editado pelo admin\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.description", is("editado pelo admin")));
+
+        mockMvc.perform(put("/api/v1/merchant/shops/" + shopId + "/hours")
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"days\": [ { \"day\": \"SEGUNDA\", \"opensAt\": \"08:00\", \"closesAt\": \"18:00\", \"closed\": false } ] }"))
+                .andExpect(status().isOk());
+
+        String productResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto Admin", "description": "desc",
+                                  "price": 10.0, "stockQuantity": 5 }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        objectMapper.readTree(productResponse).get("id").asText();
+
+        // creating a brand-new shop is still MERCHANT-only
+        mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Nova", "nuit": "888999000", "address": "Rua B",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isForbidden());
+
+        // GET /merchant/shops (list) is a "list mine" endpoint, not opened to admin
+        mockMvc.perform(get("/api/v1/merchant/shops")
+                        .header("Authorization", adminAuth))
+                .andExpect(status().isForbidden());
+
+        // the dedicated admin listing sees every shop, including this one
+        mockMvc.perform(get("/api/v1/admin/shops")
+                        .header("Authorization", adminAuth)
+                        .param("query", "Loja Admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id", is(shopId)))
+                .andExpect(jsonPath("$.content[0].ownerId", is(owner)));
+
+        mockMvc.perform(get("/api/v1/admin/shops")
+                        .header("Authorization", merchantToken(owner)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void categoriesEndpoint_isPublic() throws Exception {
         mockMvc.perform(get("/api/v1/meta/categories"))
                 .andExpect(status().isOk());

@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/merchant/shops")
-@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF', 'ADMIN')")
 public class StoreController {
 
     private final StoreService storeService;
@@ -43,6 +43,7 @@ public class StoreController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
     public List<ShopCardResponse> list(Authentication authentication) {
         if (CurrentUser.isMerchantStaff(authentication)) {
             UUID shopId = CurrentUser.shopId(authentication);
@@ -66,42 +67,42 @@ public class StoreController {
     }
 
     @PatchMapping("/{shopId}")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public ShopResponse update(Authentication authentication, @PathVariable UUID shopId,
             @RequestBody UpdateShopRequest request) {
         return storeService.update(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/logo/presign")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public PresignUploadResponse presignLogo(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody PresignUploadRequest request) {
         return storeService.presignLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/logo")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public ShopResponse confirmLogo(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ConfirmUploadRequest request) {
         return storeService.confirmLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/cover/presign")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public PresignUploadResponse presignCover(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody PresignUploadRequest request) {
         return storeService.presignCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/cover")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public ShopResponse confirmCover(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ConfirmUploadRequest request) {
         return storeService.confirmCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PatchMapping("/{shopId}/status")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public ShopResponse updateStatus(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ShopStatusRequest request) {
         return storeService.updateStatus(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
@@ -115,7 +116,7 @@ public class StoreController {
     }
 
     @PutMapping("/{shopId}/hours")
-    @PreAuthorize("hasRole('MERCHANT')")
+    @PreAuthorize("hasAnyRole('MERCHANT', 'ADMIN')")
     public HoursResponse putHours(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody UpdateHoursRequest request) {
         storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));

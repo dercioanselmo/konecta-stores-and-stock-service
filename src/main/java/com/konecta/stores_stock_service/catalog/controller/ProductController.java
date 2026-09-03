@@ -30,17 +30,19 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Every method here — read and write — is open to both MERCHANT and
- * MERCHANT_STAFF: a staff member gets full CRUD on products for the one
- * shop they're assigned to (enforced by {@link #assertOwned}, which scopes
+ * Every method here — read and write — is open to MERCHANT, MERCHANT_STAFF,
+ * and ADMIN: a staff member gets full CRUD on products for the one shop
+ * they're assigned to (enforced by {@link #assertOwned}, which scopes
  * MERCHANT_STAFF to their JWT's {@code shopId} claim), matching the
- * product-level access the frontend asked for. Shop-level settings
- * (profile, hours, logo/cover, status) stay MERCHANT-only — see
+ * product-level access the frontend asked for; ADMIN bypasses ownership
+ * entirely and can manage products on any shop. Shop-level settings
+ * (profile, hours, logo/cover, status) are MERCHANT/ADMIN-only, no
+ * MERCHANT_STAFF — see
  * {@link com.konecta.stores_stock_service.store.controller.StoreController}.
  */
 @RestController
 @RequestMapping("/api/v1/merchant/shops/{shopId}/products")
-@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF', 'ADMIN')")
 public class ProductController {
 
     private final ProductService productService;
