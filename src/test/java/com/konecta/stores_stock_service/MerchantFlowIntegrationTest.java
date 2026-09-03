@@ -53,6 +53,10 @@ class MerchantFlowIntegrationTest {
         return "Bearer " + TestJwtUtil.token(userId, "ADMIN");
     }
 
+    private String staffToken(String userId, String shopId) {
+        return "Bearer " + TestJwtUtil.staffToken(userId, shopId);
+    }
+
     @BeforeEach
     void loadSeededTaxonomy() throws Exception {
         String categories = mockMvc.perform(get("/api/v1/meta/categories"))
@@ -333,6 +337,104 @@ class MerchantFlowIntegrationTest {
                 .andExpect(jsonPath("$.uploadUrl").exists())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response).get("key").asText();
+    }
+
+    @Test
+    void merchantStaff_canReadAssignedShopAndProducts() throws Exception {
+        // Merchant creates a shop
+        String owner = "owner-" + System.nanoTime();
+        String merchantAuth = merchantToken(owner);
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Staff", "nuit": "987654321", "address": "Av. Mao Tse Tung",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", merchantAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto Staff", "description": "desc",
+                                  "price": 50.0, "stockQuantity": 10 }
+                                """))
+                .andExpect(status().isCreated());
+
+        // Staff token scoped to this shop can read it
+        String staffAuth = staffToken("staff-" + System.nanoTime(), shopId);
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", staffAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(shopId)));
+
+        mockMvc.perform(get("/api/v1/merchant/shops")
+                        .header("Authorization", staffAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id", is(shopId)));
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", staffAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(1)));
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/dashboard/summary")
+                        .header("Authorization", staffAuth))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void merchantStaff_cannotAccessDifferentShop() throws Exception {
+        String owner = "owner-" + System.nanoTime();
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantToken(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Alheia", "nuit": "111000111", "address": "Rua Z",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        // Staff token scoped to a different shop ID
+        String staffAuth = staffToken("staff-" + System.nanoTime(), "00000000-0000-0000-0000-000000000000");
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", staffAuth))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("SHOP_NOT_FOUND")));
+    }
+
+    @Test
+    void merchantStaff_cannotWriteProducts() throws Exception {
+        String owner = "owner-" + System.nanoTime();
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantToken(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Write", "nuit": "222333444", "address": "Rua W",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String staffAuth = staffToken("staff-" + System.nanoTime(), shopId);
+
+        mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", staffAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto", "description": "desc",
+                                  "price": 10.0, "stockQuantity": 5 }
+                                """))
+                .andExpect(status().isForbidden());
     }
 
     @Test

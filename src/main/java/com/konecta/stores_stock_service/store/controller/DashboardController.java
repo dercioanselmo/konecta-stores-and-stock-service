@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/merchant/shops/{shopId}/dashboard")
-@PreAuthorize("hasRole('MERCHANT')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
 public class DashboardController {
 
     private final StoreService storeService;
@@ -37,7 +37,8 @@ public class DashboardController {
 
     @GetMapping("/summary")
     public DashboardSummaryResponse summary(Authentication authentication, @PathVariable UUID shopId) {
-        Store store = storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));
+        Store store = storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication),
+                CurrentUser.isMerchantStaff(authentication), CurrentUser.shopId(authentication));
         boolean open = !store.isManuallyClosed() && store.getStatus() == StoreStatus.ACTIVE
                 && openingHoursService.isOpenNow(shopId);
         long productCount = productRepository.countByStoreId(shopId);

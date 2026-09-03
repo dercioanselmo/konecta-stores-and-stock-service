@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/merchant/shops/{shopId}/products")
-@PreAuthorize("hasRole('MERCHANT')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
 public class ProductController {
 
     private final ProductService productService;
@@ -56,6 +56,7 @@ public class ProductController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse create(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody CreateProductRequest request) {
         assertOwned(authentication, shopId);
@@ -69,6 +70,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse update(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @RequestBody UpdateProductRequest request) {
         assertOwned(authentication, shopId);
@@ -76,6 +78,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/active")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse setActive(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @RequestParam boolean active) {
         assertOwned(authentication, shopId);
@@ -83,6 +86,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/stock")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse adjustStock(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody StockAdjustRequest request) {
         assertOwned(authentication, shopId);
@@ -90,6 +94,7 @@ public class ProductController {
     }
 
     @PostMapping("/{productId}/photos/presign")
+    @PreAuthorize("hasRole('MERCHANT')")
     public PresignUploadResponse presignPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody PresignUploadRequest request) {
         assertOwned(authentication, shopId);
@@ -98,6 +103,7 @@ public class ProductController {
 
     @PostMapping("/{productId}/photos")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductPhotoResponse confirmPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody ConfirmUploadRequest request) {
         assertOwned(authentication, shopId);
@@ -106,6 +112,7 @@ public class ProductController {
 
     @DeleteMapping("/{productId}/photos/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('MERCHANT')")
     public void deletePhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @PathVariable UUID photoId) {
         assertOwned(authentication, shopId);
@@ -113,6 +120,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/photos/{photoId}/primary")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ProductPhotoResponse setPrimaryPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @PathVariable UUID photoId) {
         assertOwned(authentication, shopId);
@@ -120,6 +128,7 @@ public class ProductController {
     }
 
     private void assertOwned(Authentication authentication, UUID shopId) {
-        storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));
+        storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication),
+                CurrentUser.isMerchantStaff(authentication), CurrentUser.shopId(authentication));
     }
 }

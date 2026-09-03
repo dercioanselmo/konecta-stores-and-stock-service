@@ -79,7 +79,27 @@ public class StoreService {
     }
 
     public Store getOwned(UUID shopId, String ownerUserId, boolean isAdmin) {
+        return getOwned(shopId, ownerUserId, isAdmin, false, null);
+    }
+
+    /**
+     * Resolves and authorises access to a shop.
+     * <ul>
+     *   <li>ADMIN — any shop, no ownership check.</li>
+     *   <li>MERCHANT_STAFF — shop must match the {@code claimedShopId} from their JWT.</li>
+     *   <li>MERCHANT — shop must be owned by {@code ownerUserId}.</li>
+     * </ul>
+     */
+    public Store getOwned(UUID shopId, String ownerUserId, boolean isAdmin,
+            boolean isMerchantStaff, UUID claimedShopId) {
         if (isAdmin) {
+            return storeRepository.findById(shopId)
+                    .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
+        }
+        if (isMerchantStaff) {
+            if (claimedShopId == null || !claimedShopId.equals(shopId)) {
+                throw ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada");
+            }
             return storeRepository.findById(shopId)
                     .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
         }
@@ -87,8 +107,19 @@ public class StoreService {
                 .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
     }
 
+    public ShopCardResponse getCard(UUID shopId) {
+        Store store = storeRepository.findById(shopId)
+                .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
+        return toCard(store);
+    }
+
     public ShopResponse getProfile(UUID shopId, String ownerUserId, boolean isAdmin) {
         return toResponse(getOwned(shopId, ownerUserId, isAdmin));
+    }
+
+    public ShopResponse getProfile(UUID shopId, String ownerUserId, boolean isAdmin,
+            boolean isMerchantStaff, UUID claimedShopId) {
+        return toResponse(getOwned(shopId, ownerUserId, isAdmin, isMerchantStaff, claimedShopId));
     }
 
     @Transactional

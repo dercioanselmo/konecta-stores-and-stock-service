@@ -34,4 +34,23 @@ public final class TestJwtUtil {
             throw new RuntimeException(e);
         }
     }
+
+    public static String staffToken(String subject, String shopId) {
+        try {
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .subject(subject)
+                    .claim("email", subject + "@example.com")
+                    .claim("roles", "ROLE_MERCHANT_STAFF")
+                    .claim("shopId", shopId)
+                    .claim("type", "access")
+                    .issueTime(Date.from(Instant.now()))
+                    .expirationTime(Date.from(Instant.now().plusSeconds(900)))
+                    .build();
+            SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+            jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
+            return jwt.serialize();
+        } catch (JOSEException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

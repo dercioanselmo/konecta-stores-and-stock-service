@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/merchant/shops")
-@PreAuthorize("hasRole('MERCHANT')")
+@PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
 public class StoreController {
 
     private final StoreService storeService;
@@ -44,51 +44,64 @@ public class StoreController {
 
     @GetMapping
     public List<ShopCardResponse> list(Authentication authentication) {
+        if (CurrentUser.isMerchantStaff(authentication)) {
+            UUID shopId = CurrentUser.shopId(authentication);
+            if (shopId == null) return List.of();
+            return List.of(storeService.getCard(shopId));
+        }
         return storeService.listForOwner(CurrentUser.userId(authentication));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('MERCHANT')")
     public ShopResponse create(Authentication authentication, @Valid @RequestBody CreateShopRequest request) {
         return storeService.create(CurrentUser.userId(authentication), request);
     }
 
     @GetMapping("/{shopId}")
     public ShopResponse get(Authentication authentication, @PathVariable UUID shopId) {
-        return storeService.getProfile(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));
+        return storeService.getProfile(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication),
+                CurrentUser.isMerchantStaff(authentication), CurrentUser.shopId(authentication));
     }
 
     @PatchMapping("/{shopId}")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ShopResponse update(Authentication authentication, @PathVariable UUID shopId,
             @RequestBody UpdateShopRequest request) {
         return storeService.update(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/logo/presign")
+    @PreAuthorize("hasRole('MERCHANT')")
     public PresignUploadResponse presignLogo(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody PresignUploadRequest request) {
         return storeService.presignLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/logo")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ShopResponse confirmLogo(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ConfirmUploadRequest request) {
         return storeService.confirmLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/cover/presign")
+    @PreAuthorize("hasRole('MERCHANT')")
     public PresignUploadResponse presignCover(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody PresignUploadRequest request) {
         return storeService.presignCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PostMapping("/{shopId}/cover")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ShopResponse confirmCover(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ConfirmUploadRequest request) {
         return storeService.confirmCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PatchMapping("/{shopId}/status")
+    @PreAuthorize("hasRole('MERCHANT')")
     public ShopResponse updateStatus(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody ShopStatusRequest request) {
         return storeService.updateStatus(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
@@ -96,11 +109,13 @@ public class StoreController {
 
     @GetMapping("/{shopId}/hours")
     public HoursResponse getHours(Authentication authentication, @PathVariable UUID shopId) {
-        storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));
+        storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication),
+                CurrentUser.isMerchantStaff(authentication), CurrentUser.shopId(authentication));
         return openingHoursService.getHours(shopId);
     }
 
     @PutMapping("/{shopId}/hours")
+    @PreAuthorize("hasRole('MERCHANT')")
     public HoursResponse putHours(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody UpdateHoursRequest request) {
         storeService.getOwned(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication));
