@@ -19,8 +19,7 @@ public record ProductResponse(
         int lowStockThreshold,
         boolean active,
         boolean lowStock,
-        List<String> imageUrls,
-        String primaryImageUrl,
+        List<ProductPhotoResponse> photos,
         Instant createdAt,
         Instant updatedAt) {
 }

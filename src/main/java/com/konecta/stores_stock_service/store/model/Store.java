@@ -59,11 +59,11 @@ public class Store {
     @Enumerated(EnumType.STRING)
     private StoreStatus status = StoreStatus.DRAFT;
 
-    @Column(name = "logo_url")
-    private String logoUrl;
+    @Column(name = "logo_key")
+    private String logoKey;
 
-    @Column(name = "cover_url")
-    private String coverUrl;
+    @Column(name = "cover_key")
+    private String coverKey;
 
     @Column(name = "accepts_pickup")
     private boolean acceptsPickup = true;

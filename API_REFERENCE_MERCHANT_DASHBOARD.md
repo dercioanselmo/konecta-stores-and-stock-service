@@ -4,9 +4,31 @@
 frontend-authored spec to describe what the **Stores-and-Stock service**
 actually implements today, verified against a running instance with real
 JWTs issued by KONECTA-SECURITY-SERVICE. Sections the backend does **not**
-own (Orders, Sales, Receipts, photo upload) are called out explicitly —
-see [What's not here](#whats-not-here) — rather than removed, so the
-frontend knows what to stub vs. what to wire up now.
+own (Orders, Sales, Receipts) are called out explicitly — see
+[What's not here](#whats-not-here) — rather than removed, so the frontend
+knows what to stub vs. what to wire up now.
+
+**Product photo and shop logo/cover upload is now implemented — via a
+private S3 bucket, not a multipart endpoint on this service.** This is a
+**breaking change from the previous revision of this doc**, which had it
+as a single `multipart/form-data POST`. The real flow is presigned and
+two-step:
+
+1. Ask this service for a presigned upload URL (`POST .../presign`,
+   `{ contentType }` → `{ uploadUrl, key, expiresAt }`).
+2. Upload the file **directly to S3** with a plain `PUT` to `uploadUrl` —
+   this service is not in that request at all, so don't send an `
+   Authorization` header on that call, and don't route it through this
+   API. `Content-Type` on the `PUT` must match what you presigned.
+3. Tell this service the upload finished (`POST .../presign`'s sibling
+   endpoint without `/presign`, body `{ key }`) — it verifies the object
+   actually landed in S3 and returns the created resource.
+
+See [Photos](#photos) and the logo/cover endpoints under
+[Shops](#1-shops) for the exact paths. Every photo/logo/cover `url` this
+API returns is a **presigned GET URL that expires** (1 hour by default)
+— don't cache it long-term, re-fetch the parent resource if displaying
+an image beyond that window.
 
 Full request/response contracts (including what changed from the original
 spec, and why) live in this service's `context.md` — treat this file as
@@ -42,6 +64,13 @@ service already issues. No new login/token mechanism.
   "timestamp": "2026-09-02T21:13:36.003771Z"
 }
 ```
+
+- Any unexpected server-side error also now comes back in this same
+  envelope (`500 {"code":"INTERNAL_ERROR", "message": "Ocorreu um erro
+  interno. Tente novamente.", ...}`) instead of falling through to a bare
+  framework error page — if you see a `500` with no `code`/`message`
+  fields at all going forward, that's worth flagging again, since it
+  would mean something bypassed our error handling entirely.
 
 ---
 
@@ -118,6 +147,35 @@ send `[]` to clear all). If the shop was `DRAFT` and the edit fills in
 the last missing activation field, `status` flips to `ACTIVE`
 automatically as part of this call — no separate "activate" endpoint.
 
+### Logo / cover upload — presigned, two calls each
+
+Same pattern for both `logo` and `cover` (swap the path segment):
+
+#### `POST /api/v1/merchant/shops/{shopId}/logo/presign`
+
+**Request body**: `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only).
+
+**Response `200 OK`**: `{ "uploadUrl": "https://konecta-media-....s3.amazonaws.com/stores/.../logo/xyz.jpg?X-Amz-...", "key": "stores/{shopId}/logo/xyz.jpg", "expiresAt": "..." }`
+
+Then `PUT` the raw file bytes to `uploadUrl` yourself, `Content-Type`
+header matching what you presigned — **not through this API**, directly
+to S3.
+
+#### `POST /api/v1/merchant/shops/{shopId}/logo`
+
+**Request body**: `{ "key": "stores/{shopId}/logo/xyz.jpg" }` (the `key`
+from the presign response above).
+
+**Response `200 OK`** — the updated [`Shop`](#shop) (not just the URL —
+one less merge step for the frontend). `logoUrl` in the response is a
+fresh presigned GET URL.
+
+**Errors**: `400 VALIDATION_ERROR` if the object isn't actually in S3
+yet (the `PUT` in step 2 didn't finish or failed) or if `key` doesn't
+belong to this shop.
+
+`.../cover/presign` and `.../cover` work identically, setting `coverUrl`.
+
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — manual open/pause override
 
 Unchanged from the original spec.
@@ -190,10 +248,12 @@ literally the Auth service's `PageResponse<T>`, but the same fields):
 | `stockQuantity` | integer | Required, ≥ 0 |
 | `lowStockThreshold` | integer, optional | Defaults to `5` |
 | `active` | boolean | Default `true` |
-| `imageUrls` | string[], optional | See [Photos](#whats-not-here) |
-| `primaryImageUrl` | string, optional | |
 
-**Response `201 Created`** — a [`Product`](#product).
+Photos are **not** set here — this is a JSON body, not multipart. Upload
+them separately after creating the product; see [Photos](#photos) below.
+
+**Response `201 Created`** — a [`Product`](#product) (`photos: []` on a
+freshly created one).
 
 ### `GET` / `PATCH .../products/{productId}` — detail / edit
 
@@ -220,6 +280,55 @@ adjustment, but there's no API to read it yet).
 { "code": "VALIDATION_ERROR", "message": "Falha na validação do pedido",
   "details": ["quantity: não pode ser negativo"], "timestamp": "..." }
 ```
+
+### Photos
+
+**Implemented — presigned S3 upload, two calls, not a multipart POST.**
+
+#### `POST .../products/{productId}/photos/presign` — get an upload URL
+
+**Request body**: `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only).
+
+**Response `200 OK`**: `{ "uploadUrl": "https://konecta-media-....s3.amazonaws.com/products/.../xyz.jpg?X-Amz-...", "key": "products/{productId}/xyz.jpg", "expiresAt": "2026-09-02T21:18:00Z" }`
+
+`uploadUrl` is valid for 5 minutes (`presign-put-ttl-seconds`). `PUT`
+the raw file bytes there yourself, with a `Content-Type` header matching
+what you presigned — **do not** send this through this service, and
+don't send an `Authorization` header on that request (S3 doesn't want
+one; the signature in the URL is the auth).
+
+**Errors**: `400 VALIDATION_ERROR` for an unsupported `contentType`:
+
+```json
+{ "code": "VALIDATION_ERROR", "message": "Falha na validação do pedido",
+  "details": ["contentType: formato não suportado (use JPEG, PNG ou WEBP)"], "timestamp": "..." }
+```
+
+#### `POST .../products/{productId}/photos` — confirm the upload
+
+**Request body**: `{ "key": "products/{productId}/xyz.jpg" }` (the `key`
+from the presign response).
+
+**Response `201 Created`**: `{ "id": "uuid", "url": "https://....s3.amazonaws.com/...?X-Amz-...", "isPrimary": boolean }`
+— matches the original spec's shape. `url` is a **presigned GET**, valid
+1 hour (`presign-get-ttl-seconds`) — it will stop working after that;
+re-fetch the product if you need the image later. The **first** photo
+confirmed for a product is automatically `isPrimary: true`; later ones
+default to `false` until explicitly promoted (see below).
+
+**Errors**: `400 VALIDATION_ERROR` if the object isn't in S3 yet (the
+`PUT` didn't finish or failed) or `key` doesn't belong to this product.
+
+#### `DELETE .../products/{productId}/photos/{photoId}` — remove
+
+`204 No Content`. Deletes the object from S3 too, not just the
+database row. If the deleted photo was primary and others remain, the
+next one (upload order) is auto-promoted — a product with photos always
+has exactly one primary, never zero.
+
+#### `PATCH .../products/{productId}/photos/{photoId}/primary` — set cover photo
+
+No body. **Response `200 OK`**: `{ "id", "url", "isPrimary": true }`.
 
 ---
 
@@ -327,12 +436,10 @@ the frontend at them yet.
 - **Sales summary** (`GET .../sales/summary`) — needs the Orders/Payments
   database.
 - **Receipts** (`GET .../receipts/**`) — Payments domain.
-- **Product photo upload** (`POST .../products/{id}/photos` multipart,
-  plus delete/set-primary) — binary object storage wasn't adopted for
-  this phase. Photos are instead plain URL fields on the product payload:
-  `imageUrls: string[]` and `primaryImageUrl: string`. The frontend
-  supplies URLs directly (e.g. from wherever it already hosts images);
-  there's no upload endpoint to hit.
+
+(Product photo / shop logo / cover upload used to be listed here as not
+implemented — it now is, see [Photos](#photos) and the logo/cover
+endpoints under [Shops](#1-shops).)
 
 If/when any of these move to this service or a sibling one, this file
 will be updated and the frontend team told directly — don't build against
@@ -413,8 +520,9 @@ guessed shapes for them.
   "lowStockThreshold": 5,
   "active": true,
   "lowStock": false,
-  "imageUrls": [],
-  "primaryImageUrl": null,
+  "photos": [
+    { "id": "e6a72e4e-e179-4078-bd66-c3b6478a02a5", "url": "http://localhost:8092/uploads/products/.../xyz.jpg", "isPrimary": true }
+  ],
   "createdAt": "2026-09-02T21:13:35Z",
   "updatedAt": "2026-09-02T21:13:36Z"
 }
@@ -435,8 +543,7 @@ guessed shapes for them.
 | `lowStockThreshold` | integer | |
 | `active` | boolean | |
 | `lowStock` | boolean | New — server-computed, `stockQuantity <= lowStockThreshold` |
-| `imageUrls` | string[] | Replaces the original spec's `photos: {id,url,isPrimary}[]` — see [What's not here](#whats-not-here) |
-| `primaryImageUrl` | string? | Replaces per-photo `isPrimary` flag |
+| `photos` | `{ id, url, isPrimary }[]` | **Matches the original spec exactly** now that upload is implemented — the earlier `imageUrls`/`primaryImageUrl` fields from a prior revision of this doc are gone. Managed via [Photos](#photos) endpoints, not through `PATCH .../products/{id}`. |
 | `createdAt` | timestamp | |
 | `updatedAt` | timestamp | New |
 
@@ -458,4 +565,15 @@ merchant creates a product with `subcategoryId`, response correctly
 carries denormalized `subcategoryName`/`categoryId`/`categoryName`. Plus
 the original flow: shop create → auto-activation → product create →
 low-stock flag → dashboard summary → stock adjust → negative-stock
-rejection → 401/403 boundaries. All matched this document.
+rejection → 401/403 boundaries.
+
+This revision's S3 upload flow was verified against the **real bucket**
+(`konecta-media-564956047797`), not a mock: presign a product photo
+upload → `PUT` the actual bytes straight to S3 with the returned
+`uploadUrl` (this service never touched them) → confirm with this
+service → fetch the file back via the returned presigned `GET` URL →
+byte-for-byte match with what was uploaded → delete the photo → the S3
+object is genuinely gone (confirmed via a direct `HeadObject` call, not
+just "removed from our database"). Shop logo upload (presign → `PUT` →
+confirm) and unsupported-content-type rejection were verified the same
+way. All matched this document.

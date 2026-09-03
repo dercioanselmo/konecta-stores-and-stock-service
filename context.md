@@ -9,9 +9,15 @@ Living contract for this service, driven by `API_REFERENCE_MERCHANT_DASHBOARD.md
 Implemented now: **Slices A–E** (security/Eureka, Store/"Shop" core +
 ownership + ACTIVE rules, opening hours + open/closed, categories + product
 CRUD, inventory + low stock + manual adjust) **plus a two-level category
-taxonomy** (store categories → product subcategories) with admin CRUD, added
-after the initial slices per direct request (not from
-`API_REFERENCE_MERCHANT_DASHBOARD.md`, which predates this model).
+taxonomy** (store categories → product subcategories) with admin CRUD, and
+**real photo/logo/cover upload via a private S3 bucket** (presigned
+PUT/GET, browser talks to S3 directly) — both added after the initial
+slices per direct request. Photo upload **reverses** an earlier
+documented decision to skip binary storage per AGENTS.md §14; the
+frontend confirmed upload is required, not URL-pasting, so this
+supersedes that entry. Storage went through two iterations: local disk
+first, then S3 once bucket credentials were provided — local disk is
+gone, no longer an option.
 
 Explicitly **not** implemented here, per `AGENTS.md` §14 and §10:
 
@@ -20,10 +26,6 @@ Explicitly **not** implemented here, per `AGENTS.md` §14 and §10:
 - **Sales summary** (`/merchant/shops/{id}/sales/summary`) — requires the
   Orders/Payments database; would be fake data if built here.
 - **Receipts** (`/merchant/shops/{id}/receipts/**`) — Payments domain.
-- **Product photo upload** (`POST .../photos` multipart) — binary object
-  storage is out of scope per AGENTS.md §14 ("accept URLs only unless a
-  media service is adopted"). Product images are instead a plain list of
-  URL strings on the product payload (`imageUrls`, `primaryImageUrl`).
 - **Geo "near me" listing** (Slice F) — not requested yet. **Admin
   suspend/search** (Slice G) is still not implemented, but admin category
   management (below) now exists as a first admin-facing surface.
@@ -49,7 +51,12 @@ compute honestly: `isOpen`, `lowStockCount`, `productCount`,
   `SHOP_NOT_FOUND`, …); `message` and `details` are **Portuguese** — this
   is a Portuguese-language product (Mozambique), so any text a user might
   see is written in Portuguese, not just proxied from Jakarta Validation's
-  default English messages.
+  default English messages. Any exception not otherwise mapped is caught,
+  **logged server-side with its stack trace**, and answered as
+  `500 {"code":"INTERNAL_ERROR", ...}` in the same envelope — previously
+  it fell through to Spring's default error page (bare, no logging, no
+  consistent shape), which is what produced an unexplained
+  `{"message":""}` seen once during frontend testing.
 - `ROLE_MERCHANT` for merchant-facing endpoints (§1–§3 below); ownership
   additionally checked per call (`store.owner_user_id == jwt.sub`).
   `ROLE_ADMIN` bypasses the ownership check.
@@ -91,6 +98,18 @@ present, **replaces** the full set (same semantics as opening hours) —
 omit the field to leave categories unchanged, send `[]` to clear them.
 Recomputes `ACTIVE` eligibility (trade name, NUIT, address, city,
 neighborhood present) and flips status automatically once all are set.
+
+### Logo / cover upload — MERCHANT (owner)
+
+Two-step presigned flow, same shape for both — see [Uploads](#uploads)
+below for the full mechanics:
+
+- `POST /api/v1/merchant/shops/{shopId}/logo/presign` /
+  `.../cover/presign` — body `{ "contentType": "image/jpeg" }` → `200`
+  `{ uploadUrl, key, expiresAt }`.
+- `POST /api/v1/merchant/shops/{shopId}/logo` / `.../cover` — body
+  `{ "key": "..." }` (the `key` from the presign step) → `200` → updated
+  `Shop`, with `logoUrl`/`coverUrl` set to a fresh presigned GET URL.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner)
 
@@ -198,6 +217,68 @@ Soft archive/restore.
 Body: `{ "quantity": integer }` — sets absolute `quantity_available`.
 Rejects negative. Records a `MANUAL_ADJUST` stock movement.
 
+### Photos
+
+Two-step presigned flow — see [Uploads](#uploads) below:
+
+- `POST .../products/{productId}/photos/presign` — body
+  `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only — `400
+  VALIDATION_ERROR` otherwise) → `200` `{ uploadUrl, key, expiresAt }`.
+  Client `PUT`s the raw file bytes to `uploadUrl` directly (not through
+  this service).
+- `POST .../products/{productId}/photos` — body `{ "key": "..." }` (the
+  `key` from the presign step). `400 VALIDATION_ERROR` if the key
+  doesn't belong to this product (path prefix check) or the object
+  isn't actually in the bucket yet (client didn't finish the `PUT`).
+  The first photo confirmed for a product is automatically `isPrimary`.
+  `201` → `{ id, url, isPrimary }` (`url` is a freshly presigned GET).
+- `DELETE .../products/{productId}/photos/{photoId}` — `204`. Deletes
+  the S3 object too, not just the DB row. If the deleted photo was
+  primary and others remain, the next one (by upload order) is
+  auto-promoted — a product is never left with photos but no primary.
+- `PATCH .../products/{productId}/photos/{photoId}/primary` — explicit
+  set-primary, unsets any other photo's primary flag. `200` →
+  `{ id, url, isPrimary }`.
+
+`Product.photos` (see data model) reflects current state; there's no
+separate "list photos" endpoint since `GET .../products/{productId}`
+already returns them.
+
+## Uploads
+
+**Private S3 bucket, presigned both ways** — the backend never receives
+file bytes and never serves them either; it only issues short-lived
+signed URLs (`common.storage.S3ObjectStorageService`,
+`common.storage.AwsS3Config`):
+
+- Bucket: `konecta-media-564956047797` (`aws.s3.bucket`), region
+  `us-east-1` (`aws.region`).
+- Keys: `{aws.s3.products-prefix}{productId}/{uuid}.{ext}` for product
+  photos, `{aws.s3.stores-prefix}{shopId}/logo|cover/{uuid}.{ext}` for
+  shop assets. The backend generates the key, not the client — a client
+  never gets to choose where in the bucket its file lands (see
+  `S3KeyFactory`).
+- `POST .../presign` → a presigned `PUT` URL, valid
+  `aws.s3.presign-put-ttl-seconds` (300s default). The client uploads
+  directly to S3 with this URL — this service is not in that request
+  path at all.
+- Every `url` returned in a response (`Product.photos[].url`,
+  `Shop.logoUrl`/`coverUrl`) is a **freshly presigned `GET`**, valid
+  `aws.s3.presign-get-ttl-seconds` (3600s default) — **never persist
+  these URLs client-side**, they expire; re-fetch the parent resource
+  if displaying an image after that window.
+- Credentials (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`,
+  never committed) are read via Spring's `@Value`, not the AWS SDK's own
+  env-var credential chain — `.env` values live in Spring's
+  `Environment`, not actual OS environment variables, so
+  `EnvironmentVariableCredentialsProvider` wouldn't see them. See
+  `AwsS3Config`.
+- Verified live against the real bucket: presign → real `PUT` from
+  outside this service → confirm (existence-checked via `HeadObject`) →
+  fetch via the presigned `GET` → byte-for-byte match → delete → object
+  actually gone from the bucket (`HeadObject` 404). Not just tested
+  against a fake — the real AWS round trip was exercised.
+
 ## 4. Admin
 
 See [§2 Category taxonomy](#2-category-taxonomy) — the only admin surface
@@ -226,7 +307,7 @@ active`
 
 `id, shopId, name, description, subcategoryId, subcategoryName,
 categoryId, categoryName, price, stockQuantity, lowStockThreshold,
-active, lowStock, imageUrls, primaryImageUrl, createdAt, updatedAt`
+active, lowStock, photos: { id, url, isPrimary }[], createdAt, updatedAt`
 
 (`categoryId`/`categoryName` on `Product` are denormalized from its
 subcategory's parent, purely so the frontend doesn't need a second call

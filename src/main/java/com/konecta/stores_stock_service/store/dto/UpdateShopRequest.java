@@ -12,8 +12,6 @@ public record UpdateShopRequest(
         String phone,
         List<UUID> categoryIds,
         String description,
-        String logoUrl,
-        String coverUrl,
         Boolean acceptsPickup,
         Boolean acceptsDelivery) {
 }

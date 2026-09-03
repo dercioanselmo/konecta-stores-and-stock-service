@@ -4,6 +4,12 @@ import com.konecta.stores_stock_service.catalog.dto.CategoryResponse;
 import com.konecta.stores_stock_service.catalog.model.Category;
 import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
+import com.konecta.stores_stock_service.common.storage.ObjectStorageService;
+import com.konecta.stores_stock_service.common.storage.PresignedUpload;
+import com.konecta.stores_stock_service.common.storage.S3KeyFactory;
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
@@ -31,15 +37,19 @@ public class StoreService {
     private final CategoryRepository categoryRepository;
     private final OpeningHoursService openingHoursService;
     private final LowStockCounter lowStockCounter;
+    private final ObjectStorageService objectStorageService;
+    private final S3KeyFactory s3KeyFactory;
 
     public StoreService(StoreRepository storeRepository, StoreCategoryRepository storeCategoryRepository,
             CategoryRepository categoryRepository, OpeningHoursService openingHoursService,
-            LowStockCounter lowStockCounter) {
+            LowStockCounter lowStockCounter, ObjectStorageService objectStorageService, S3KeyFactory s3KeyFactory) {
         this.storeRepository = storeRepository;
         this.storeCategoryRepository = storeCategoryRepository;
         this.categoryRepository = categoryRepository;
         this.openingHoursService = openingHoursService;
         this.lowStockCounter = lowStockCounter;
+        this.objectStorageService = objectStorageService;
+        this.s3KeyFactory = s3KeyFactory;
     }
 
     public List<ShopCardResponse> listForOwner(String ownerUserId) {
@@ -111,12 +121,6 @@ public class StoreService {
         if (request.description() != null) {
             store.setDescription(request.description());
         }
-        if (request.logoUrl() != null) {
-            store.setLogoUrl(request.logoUrl());
-        }
-        if (request.coverUrl() != null) {
-            store.setCoverUrl(request.coverUrl());
-        }
         if (request.acceptsPickup() != null) {
             store.setAcceptsPickup(request.acceptsPickup());
         }
@@ -127,6 +131,48 @@ public class StoreService {
             store.setStatus(StoreStatus.ACTIVE);
         }
         return toResponse(store);
+    }
+
+    public PresignUploadResponse presignLogoUpload(UUID shopId, String ownerUserId, boolean isAdmin,
+            PresignUploadRequest request) {
+        Store store = getOwned(shopId, ownerUserId, isAdmin);
+        String contentType = s3KeyFactory.requireValidContentType(request.contentType());
+        String key = s3KeyFactory.shopLogoKey(store.getId(), contentType);
+        PresignedUpload upload = objectStorageService.presignUpload(key, contentType);
+        return new PresignUploadResponse(upload.uploadUrl(), upload.key(), upload.expiresAt());
+    }
+
+    @Transactional
+    public ShopResponse confirmLogoUpload(UUID shopId, String ownerUserId, boolean isAdmin, ConfirmUploadRequest request) {
+        Store store = getOwned(shopId, ownerUserId, isAdmin);
+        s3KeyFactory.requireOwnedKey(request.key(), s3KeyFactory.shopLogoPrefix(store.getId()));
+        requireUploaded(request.key());
+        store.setLogoKey(request.key());
+        return toResponse(store);
+    }
+
+    public PresignUploadResponse presignCoverUpload(UUID shopId, String ownerUserId, boolean isAdmin,
+            PresignUploadRequest request) {
+        Store store = getOwned(shopId, ownerUserId, isAdmin);
+        String contentType = s3KeyFactory.requireValidContentType(request.contentType());
+        String key = s3KeyFactory.shopCoverKey(store.getId(), contentType);
+        PresignedUpload upload = objectStorageService.presignUpload(key, contentType);
+        return new PresignUploadResponse(upload.uploadUrl(), upload.key(), upload.expiresAt());
+    }
+
+    @Transactional
+    public ShopResponse confirmCoverUpload(UUID shopId, String ownerUserId, boolean isAdmin, ConfirmUploadRequest request) {
+        Store store = getOwned(shopId, ownerUserId, isAdmin);
+        s3KeyFactory.requireOwnedKey(request.key(), s3KeyFactory.shopCoverPrefix(store.getId()));
+        requireUploaded(request.key());
+        store.setCoverKey(request.key());
+        return toResponse(store);
+    }
+
+    private void requireUploaded(String key) {
+        if (!objectStorageService.exists(key)) {
+            throw ApiException.validation(List.of("key: ficheiro não encontrado — confirme após o upload terminar"));
+        }
     }
 
     @Transactional
@@ -166,10 +212,14 @@ public class StoreService {
                 .toList();
     }
 
+    private String presignedUrlOrNull(String key) {
+        return key == null ? null : objectStorageService.presignDownload(key);
+    }
+
     private ShopCardResponse toCard(Store store) {
         boolean open = isOpen(store);
         long lowStock = lowStockCounter.countLowStock(store.getId());
-        return new ShopCardResponse(store.getId(), store.getTradeName(), store.getLogoUrl(), open, lowStock);
+        return new ShopCardResponse(store.getId(), store.getTradeName(), presignedUrlOrNull(store.getLogoKey()), open, lowStock);
     }
 
     private ShopResponse toResponse(Store store) {
@@ -185,8 +235,8 @@ public class StoreService {
                 store.getNeighborhood(),
                 categoriesOf(store.getId()),
                 store.getDescription(),
-                store.getLogoUrl(),
-                store.getCoverUrl(),
+                presignedUrlOrNull(store.getLogoKey()),
+                presignedUrlOrNull(store.getCoverKey()),
                 store.getStatus(),
                 isOpen(store),
                 store.isManuallyClosed(),

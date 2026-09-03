@@ -1,5 +1,8 @@
 package com.konecta.stores_stock_service.store.controller;
 
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.security.CurrentUser;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
@@ -59,6 +62,30 @@ public class StoreController {
     public ShopResponse update(Authentication authentication, @PathVariable UUID shopId,
             @RequestBody UpdateShopRequest request) {
         return storeService.update(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
+    }
+
+    @PostMapping("/{shopId}/logo/presign")
+    public PresignUploadResponse presignLogo(Authentication authentication, @PathVariable UUID shopId,
+            @Valid @RequestBody PresignUploadRequest request) {
+        return storeService.presignLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
+    }
+
+    @PostMapping("/{shopId}/logo")
+    public ShopResponse confirmLogo(Authentication authentication, @PathVariable UUID shopId,
+            @Valid @RequestBody ConfirmUploadRequest request) {
+        return storeService.confirmLogoUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
+    }
+
+    @PostMapping("/{shopId}/cover/presign")
+    public PresignUploadResponse presignCover(Authentication authentication, @PathVariable UUID shopId,
+            @Valid @RequestBody PresignUploadRequest request) {
+        return storeService.presignCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
+    }
+
+    @PostMapping("/{shopId}/cover")
+    public ShopResponse confirmCover(Authentication authentication, @PathVariable UUID shopId,
+            @Valid @RequestBody ConfirmUploadRequest request) {
+        return storeService.confirmCoverUpload(shopId, CurrentUser.userId(authentication), CurrentUser.isAdmin(authentication), request);
     }
 
     @PatchMapping("/{shopId}/status")

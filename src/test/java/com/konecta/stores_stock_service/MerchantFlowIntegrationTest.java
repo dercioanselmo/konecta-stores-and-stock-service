@@ -11,12 +11,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.konecta.stores_stock_service.support.TestJwtUtil;
+import com.konecta.stores_stock_service.support.TestStorageConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,6 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
+@Import(TestStorageConfig.class)
 class MerchantFlowIntegrationTest {
 
     @Container
@@ -185,6 +188,103 @@ class MerchantFlowIntegrationTest {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+    }
+
+    @Test
+    void productPhotoUploadLifecycle() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Fotos", "nuit": "111222333", "address": "Rua Y",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String productResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto com Fotos", "description": "desc",
+                                  "price": 10.0, "stockQuantity": 5 }
+                                """))
+                .andReturn().getResponse().getContentAsString();
+        String productId = objectMapper.readTree(productResponse).get("id").asText();
+        String photosBase = "/api/v1/merchant/shops/" + shopId + "/products/" + productId + "/photos";
+
+        String photo1Key = presign(auth, photosBase + "/presign", "image/jpeg");
+        String photo1Response = mockMvc.perform(post(photosBase)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"" + photo1Key + "\" }"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isPrimary", is(true)))
+                .andExpect(jsonPath("$.url").exists())
+                .andReturn().getResponse().getContentAsString();
+        String photo1Id = objectMapper.readTree(photo1Response).get("id").asText();
+
+        String photo2Key = presign(auth, photosBase + "/presign", "image/png");
+        String photo2Response = mockMvc.perform(post(photosBase)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"" + photo2Key + "\" }"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isPrimary", is(false)))
+                .andReturn().getResponse().getContentAsString();
+        String photo2Id = objectMapper.readTree(photo2Response).get("id").asText();
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products/" + productId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.photos.length()", is(2)));
+
+        // unsupported content type is rejected at the presign step
+        mockMvc.perform(post(photosBase + "/presign")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"contentType\": \"application/pdf\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+
+        // a key that doesn't belong to this product is rejected on confirm
+        mockMvc.perform(post(photosBase)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"products/some-other-product/x.jpg\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+
+        // deleting the primary photo promotes the next one automatically
+        mockMvc.perform(delete(photosBase + "/" + photo1Id).header("Authorization", auth))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products/" + productId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.photos[0].id", is(photo2Id)))
+                .andExpect(jsonPath("$.photos[0].isPrimary", is(true)));
+
+        // shop logo upload
+        String logoKey = presign(auth, "/api/v1/merchant/shops/" + shopId + "/logo/presign", "image/webp");
+        mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/logo")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"" + logoKey + "\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logoUrl").exists());
+    }
+
+    private String presign(String auth, String presignPath, String contentType) throws Exception {
+        String response = mockMvc.perform(post(presignPath)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"contentType\": \"" + contentType + "\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.uploadUrl").exists())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("key").asText();
     }
 
     @Test

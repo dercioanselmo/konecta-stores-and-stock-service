@@ -6,6 +6,8 @@ import static org.mockito.Mockito.when;
 
 import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
+import com.konecta.stores_stock_service.common.storage.ObjectStorageService;
+import com.konecta.stores_stock_service.common.storage.S3KeyFactory;
 import com.konecta.stores_stock_service.store.hours.service.OpeningHoursService;
 import com.konecta.stores_stock_service.store.model.Store;
 import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
@@ -32,10 +34,14 @@ class StoreServiceOwnershipTest {
     private OpeningHoursService openingHoursService;
     @Mock
     private LowStockCounter lowStockCounter;
+    @Mock
+    private ObjectStorageService objectStorageService;
+    @Mock
+    private S3KeyFactory s3KeyFactory;
 
     private StoreService service() {
         return new StoreService(storeRepository, storeCategoryRepository, categoryRepository, openingHoursService,
-                lowStockCounter);
+                lowStockCounter, objectStorageService, s3KeyFactory);
     }
 
     @Test

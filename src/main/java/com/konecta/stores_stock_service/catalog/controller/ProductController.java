@@ -1,11 +1,15 @@
 package com.konecta.stores_stock_service.catalog.controller;
 
 import com.konecta.stores_stock_service.catalog.dto.CreateProductRequest;
+import com.konecta.stores_stock_service.catalog.dto.ProductPhotoResponse;
 import com.konecta.stores_stock_service.catalog.dto.ProductResponse;
 import com.konecta.stores_stock_service.catalog.dto.StockAdjustRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateProductRequest;
 import com.konecta.stores_stock_service.catalog.service.ProductService;
 import com.konecta.stores_stock_service.common.PageResponse;
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.security.CurrentUser;
 import com.konecta.stores_stock_service.store.service.StoreService;
 import jakarta.validation.Valid;
@@ -14,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -82,6 +87,36 @@ public class ProductController {
             @PathVariable UUID productId, @Valid @RequestBody StockAdjustRequest request) {
         assertOwned(authentication, shopId);
         return productService.adjustStock(shopId, productId, request, CurrentUser.userId(authentication));
+    }
+
+    @PostMapping("/{productId}/photos/presign")
+    public PresignUploadResponse presignPhoto(Authentication authentication, @PathVariable UUID shopId,
+            @PathVariable UUID productId, @Valid @RequestBody PresignUploadRequest request) {
+        assertOwned(authentication, shopId);
+        return productService.presignPhotoUpload(shopId, productId, request);
+    }
+
+    @PostMapping("/{productId}/photos")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProductPhotoResponse confirmPhoto(Authentication authentication, @PathVariable UUID shopId,
+            @PathVariable UUID productId, @Valid @RequestBody ConfirmUploadRequest request) {
+        assertOwned(authentication, shopId);
+        return productService.confirmPhotoUpload(shopId, productId, request);
+    }
+
+    @DeleteMapping("/{productId}/photos/{photoId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePhoto(Authentication authentication, @PathVariable UUID shopId,
+            @PathVariable UUID productId, @PathVariable UUID photoId) {
+        assertOwned(authentication, shopId);
+        productService.deletePhoto(shopId, productId, photoId);
+    }
+
+    @PatchMapping("/{productId}/photos/{photoId}/primary")
+    public ProductPhotoResponse setPrimaryPhoto(Authentication authentication, @PathVariable UUID shopId,
+            @PathVariable UUID productId, @PathVariable UUID photoId) {
+        assertOwned(authentication, shopId);
+        return productService.setPrimaryPhoto(shopId, productId, photoId);
     }
 
     private void assertOwned(Authentication authentication, UUID shopId) {
