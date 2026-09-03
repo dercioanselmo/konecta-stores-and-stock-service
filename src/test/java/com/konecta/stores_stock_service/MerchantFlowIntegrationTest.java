@@ -412,7 +412,11 @@ class MerchantFlowIntegrationTest {
     }
 
     @Test
-    void merchantStaff_cannotWriteProducts() throws Exception {
+    void merchantStaff_canWriteProductsButNotShopSettings() throws Exception {
+        // The product ask (see API_REFERENCE_MERCHANT_DASHBOARD.md's
+        // MERCHANT_STAFF section): full read/write on products for the
+        // assigned shop, but shop-level settings (profile, hours, status,
+        // logo/cover) stay MERCHANT-only.
         String owner = "owner-" + System.nanoTime();
         String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
                         .header("Authorization", merchantToken(owner))
@@ -427,13 +431,41 @@ class MerchantFlowIntegrationTest {
 
         String staffAuth = staffToken("staff-" + System.nanoTime(), shopId);
 
-        mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+        String productResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
                         .header("Authorization", staffAuth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "name": "Produto", "description": "desc",
                                   "price": 10.0, "stockQuantity": 5 }
                                 """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String productId = objectMapper.readTree(productResponse).get("id").asText();
+
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/products/" + productId + "/stock")
+                        .header("Authorization", staffAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"quantity\": 20 }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stockQuantity", is(20)));
+
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/products/" + productId + "/active")
+                        .header("Authorization", staffAuth)
+                        .param("active", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active", is(false)));
+
+        // shop-level writes stay MERCHANT-only
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", staffAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"description\": \"tentativa\" }"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/v1/merchant/shops/" + shopId + "/hours")
+                        .header("Authorization", staffAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"days\": [ { \"day\": \"SEGUNDA\", \"opensAt\": \"08:00\", \"closesAt\": \"18:00\", \"closed\": false } ] }"))
                 .andExpect(status().isForbidden());
     }
 

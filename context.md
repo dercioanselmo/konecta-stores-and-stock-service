@@ -78,18 +78,43 @@ reproduce, only a real Postgres via Testcontainers catches it.
   it fell through to Spring's default error page (bare, no logging, no
   consistent shape), which is what produced an unexplained
   `{"message":""}` seen once during frontend testing.
-- `ROLE_MERCHANT` for merchant-facing endpoints (§1–§3 below); ownership
-  additionally checked per call (`store.owner_user_id == jwt.sub`).
+- `ROLE_MERCHANT` for every merchant-facing endpoint (§1–§3 below);
+  ownership additionally checked per call (`store.owner_user_id == jwt.sub`).
   `ROLE_ADMIN` bypasses the ownership check.
+- `ROLE_MERCHANT_STAFF` — reads everywhere a `MERCHANT` can, **plus full
+  write access under `/merchant/shops/{shopId}/products/**`** (create,
+  edit, stock adjust, active toggle, photos) for their one assigned
+  shop — same permissions as `MERCHANT` there. Staff tokens carry a
+  `shopId` claim (issued by KONECTA-SECURITY-SERVICE); the backend reads
+  that claim directly (no callback to the Security service) and uses it
+  as the authorization check. Attempting any other `{shopId}` returns
+  `404 SHOP_NOT_FOUND` (same as a non-owner MERCHANT — avoids confirming
+  the shop's existence). Staff **cannot** touch shop-level settings —
+  `PATCH /merchant/shops/{shopId}`, logo/cover, `PATCH .../status`,
+  `PUT .../hours` all stay `ROLE_MERCHANT`-only, `403 ACCESS_DENIED`
+  otherwise.
+  **Fixed bug** (caught via live verification with a real staff JWT, not
+  the test suite — the unit/integration tests had encoded the wrong
+  expectation and were passing against broken behavior): `ProductController`
+  had `@PreAuthorize("hasRole('MERCHANT')")` on every write method,
+  overriding the class-level `hasAnyRole('MERCHANT','MERCHANT_STAFF')`
+  and silently blocking staff from all product writes — the opposite of
+  the intended design. Removed the per-method overrides; product writes
+  now correctly inherit the class-level rule. Regression-tested in
+  `MerchantFlowIntegrationTest#merchantStaff_canWriteProductsButNotShopSettings`.
 - `ROLE_ADMIN` for admin-facing endpoints (§4 below).
 
 ## 1. Shops (Store)
 
 Base path `/api/v1/merchant/shops`.
 
-### `GET /api/v1/merchant/shops` — MERCHANT
+### `GET /api/v1/merchant/shops` — MERCHANT | MERCHANT_STAFF
 
-List the caller's shops (by `owner_user_id`). Card projection:
+For `MERCHANT`: lists all shops owned by the caller (by `owner_user_id`).
+For `MERCHANT_STAFF`: returns a single-item list containing only the shop
+matching the `shopId` claim in their JWT.
+
+Card projection:
 
 ```json
 [{ "id", "name", "logoUrl", "isOpen", "lowStockCount" }]
@@ -98,7 +123,7 @@ List the caller's shops (by `owner_user_id`). Card projection:
 (`todaySalesTotal`, `pendingOrdersCount` omitted — Orders-dependent, see
 Scope decision above.)
 
-### `POST /api/v1/merchant/shops` — MERCHANT
+### `POST /api/v1/merchant/shops` — MERCHANT only
 
 Body: `name*`, `nuit`, `address*`, `city*` (must be `"Maputo"`),
 `neighborhood`, `phone`, `categoryIds?` (uuid[] — see §2, a store may
@@ -108,11 +133,11 @@ activation minimums (trade name, NUIT, address, city, neighborhood) are
 all present, else `DRAFT`. Unknown ids in `categoryIds` → `400
 VALIDATION_ERROR`. `201` → full `Shop`.
 
-### `GET /api/v1/merchant/shops/{shopId}` — MERCHANT (owner) | ADMIN
+### `GET /api/v1/merchant/shops/{shopId}` — MERCHANT (owner) | MERCHANT_STAFF (assigned) | ADMIN
 
 Full shop profile (fiscal + settings fields).
 
-### `PATCH /api/v1/merchant/shops/{shopId}` — MERCHANT (owner)
+### `PATCH /api/v1/merchant/shops/{shopId}` — MERCHANT (owner) only
 
 Partial update of the same field set as create. `categoryIds`, when
 present, **replaces** the full set (same semantics as opening hours) —
@@ -120,7 +145,7 @@ omit the field to leave categories unchanged, send `[]` to clear them.
 Recomputes `ACTIVE` eligibility (trade name, NUIT, address, city,
 neighborhood present) and flips status automatically once all are set.
 
-### Logo / cover upload — MERCHANT (owner)
+### Logo / cover upload — MERCHANT (owner) only
 
 Two-step presigned flow, same shape for both — see [Uploads](#uploads)
 below for the full mechanics:
@@ -132,14 +157,18 @@ below for the full mechanics:
   `{ "key": "..." }` (the `key` from the presign step) → `200` → updated
   `Shop`, with `logoUrl`/`coverUrl` set to a fresh presigned GET URL.
 
-### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner)
+### `PATCH /api/v1/merchant/shops/{shopId}/status` — MERCHANT (owner) only
 
 Body: `{ "manuallyClosed": boolean, "reason": string? }` — manual
 open/pause override, independent of posted hours. `200` → updated `Shop`.
 
-### `GET` / `PUT /api/v1/merchant/shops/{shopId}/hours` — MERCHANT (owner)
+### `GET /api/v1/merchant/shops/{shopId}/hours` — MERCHANT (owner) | MERCHANT_STAFF (assigned) | ADMIN
 
-`PUT` replaces the full week:
+Returns the weekly schedule. Same shape as the `PUT` body below.
+
+### `PUT /api/v1/merchant/shops/{shopId}/hours` — MERCHANT (owner) only
+
+Replaces the full week:
 
 ```json
 { "days": [ { "day": "SEGUNDA", "opensAt": "08:00", "closesAt": "18:00", "closed": false } ] }
@@ -148,9 +177,8 @@ open/pause override, independent of posted hours. `200` → updated `Shop`.
 `day` is Portuguese, not `java.time.DayOfWeek`'s English names: one of
 `SEGUNDA, TERCA, QUARTA, QUINTA, SEXTA, SABADO, DOMINGO` (Monday-first,
 no accents — matches the uppercase-code style already used for category
-codes). `GET` returns the same shape. `isOpen` on the `Shop`/list
-projections is computed server-side from `hours` + `manuallyClosed`,
-evaluated in `Africa/Maputo`.
+codes). `isOpen` on the `Shop`/list projections is computed server-side
+from `hours` + `manuallyClosed`, evaluated in `Africa/Maputo`.
 
 ## 2. Category taxonomy
 
@@ -204,8 +232,12 @@ starting point, not a fixed list.
 
 ## 3. Products & stock
 
-Base path `/api/v1/merchant/shops/{shopId}/products`, MERCHANT (owner) for
-all writes; `GET` also owner-only in this slice (no public catalog yet).
+Base path `/api/v1/merchant/shops/{shopId}/products`.
+
+Every endpoint here — read and write — is accessible to `MERCHANT`
+(owner), `MERCHANT_STAFF` (assigned to that shop via JWT `shopId`
+claim), and `ADMIN`. This is the one place `MERCHANT_STAFF` gets real
+write access (see the Auth section above) — verified live.
 
 ### `GET .../products`
 

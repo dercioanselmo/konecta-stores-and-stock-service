@@ -29,6 +29,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Every method here — read and write — is open to both MERCHANT and
+ * MERCHANT_STAFF: a staff member gets full CRUD on products for the one
+ * shop they're assigned to (enforced by {@link #assertOwned}, which scopes
+ * MERCHANT_STAFF to their JWT's {@code shopId} claim), matching the
+ * product-level access the frontend asked for. Shop-level settings
+ * (profile, hours, logo/cover, status) stay MERCHANT-only — see
+ * {@link com.konecta.stores_stock_service.store.controller.StoreController}.
+ */
 @RestController
 @RequestMapping("/api/v1/merchant/shops/{shopId}/products")
 @PreAuthorize("hasAnyRole('MERCHANT', 'MERCHANT_STAFF')")
@@ -56,7 +65,6 @@ public class ProductController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse create(Authentication authentication, @PathVariable UUID shopId,
             @Valid @RequestBody CreateProductRequest request) {
         assertOwned(authentication, shopId);
@@ -70,7 +78,6 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}")
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse update(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @RequestBody UpdateProductRequest request) {
         assertOwned(authentication, shopId);
@@ -78,7 +85,6 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/active")
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse setActive(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @RequestParam boolean active) {
         assertOwned(authentication, shopId);
@@ -86,7 +92,6 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/stock")
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductResponse adjustStock(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody StockAdjustRequest request) {
         assertOwned(authentication, shopId);
@@ -94,7 +99,6 @@ public class ProductController {
     }
 
     @PostMapping("/{productId}/photos/presign")
-    @PreAuthorize("hasRole('MERCHANT')")
     public PresignUploadResponse presignPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody PresignUploadRequest request) {
         assertOwned(authentication, shopId);
@@ -103,7 +107,6 @@ public class ProductController {
 
     @PostMapping("/{productId}/photos")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductPhotoResponse confirmPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @Valid @RequestBody ConfirmUploadRequest request) {
         assertOwned(authentication, shopId);
@@ -112,7 +115,6 @@ public class ProductController {
 
     @DeleteMapping("/{productId}/photos/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('MERCHANT')")
     public void deletePhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @PathVariable UUID photoId) {
         assertOwned(authentication, shopId);
@@ -120,7 +122,6 @@ public class ProductController {
     }
 
     @PatchMapping("/{productId}/photos/{photoId}/primary")
-    @PreAuthorize("hasRole('MERCHANT')")
     public ProductPhotoResponse setPrimaryPhoto(Authentication authentication, @PathVariable UUID shopId,
             @PathVariable UUID productId, @PathVariable UUID photoId) {
         assertOwned(authentication, shopId);

@@ -8,6 +8,12 @@ own (Orders, Sales, Receipts) are called out explicitly — see
 [What's not here](#whats-not-here) — rather than removed, so the frontend
 knows what to stub vs. what to wire up now.
 
+**`MERCHANT_STAFF` access is now implemented and verified live** — see
+[MERCHANT_STAFF access](#merchant_staff-access) below for the exact
+read/write split. This was the one gap this doc flagged as backend-only
+work in the previous revision; it's done — re-verify whenever convenient,
+no frontend changes needed since the contract didn't change shape.
+
 **Product photo and shop logo/cover upload is now implemented — via a
 private S3 bucket, not a multipart endpoint on this service.** This is a
 **breaking change from the previous revision of this doc**, which had it
@@ -53,13 +59,13 @@ signatures, not usage notes like presign flows or Portuguese error text.
 `Authorization: Bearer <accessToken>` — the **same** access token the Auth
 service already issues. No new login/token mechanism.
 
-- Role `MERCHANT` required on every endpoint below except `GET
-  /api/v1/meta/categories` (public).
+- Roles `MERCHANT` and `MERCHANT_STAFF` are accepted on merchant endpoints
+  (see per-endpoint notes below for the read/write split).
 - No token → `401`, code `UNAUTHENTICATED`.
 - Valid token, wrong role → `403`, code `ACCESS_DENIED`.
-- A `{shopId}` that exists but isn't owned by the caller → `404`, code
-  `SHOP_NOT_FOUND` (not `403` — avoids confirming the shop's existence to
-  a non-owner).
+- A `{shopId}` that exists but isn't owned/assigned to the caller → `404`,
+  code `SHOP_NOT_FOUND` (not `403` — avoids confirming the shop's
+  existence to a non-owner).
 - Error envelope, same shape as the Auth service's — `code` is a
   machine-readable English identifier; **`message` and `details` are in
   Portuguese** (this is a Portuguese-language product) rather than
@@ -81,6 +87,38 @@ service already issues. No new login/token mechanism.
   fields at all going forward, that's worth flagging again, since it
   would mean something bypassed our error handling entirely.
 
+
+
+---
+
+## MERCHANT_STAFF access
+
+**Implemented and verified live** — this section previously described a
+proposal; it's now the actual behavior, confirmed against a real staff
+account, real shop, and real product (create, read, and rejected writes
+all exercised).
+
+`ROLE_MERCHANT_STAFF` tokens issued by KONECTA-SECURITY-SERVICE carry a
+`shopId` claim (the one shop they're assigned to). This service reads
+that claim directly — no callback to the Security service needed — and
+scopes the staff member to exactly that shop:
+
+| What | MERCHANT (owner) | MERCHANT_STAFF | ADMIN |
+|---|---|---|---|
+| Read own shop / products / dashboard | ✅ | ✅ (assigned shop only) | ✅ |
+| Create / edit shop, products, stock | ✅ | ❌ `403` | ✅ |
+| Upload logo / cover / photos | ✅ | ❌ `403` | ✅ |
+| Update hours / status | ✅ | ❌ `403` | ✅ |
+
+A staff token hitting a `{shopId}` other than the one in their JWT claim
+returns `404 SHOP_NOT_FOUND` (not `403` — same non-owner-confirmation
+avoidance as `MERCHANT`). Staff management itself
+(`/merchant/staff/**`) isn't this service's concern — that lives on the
+Security service.
+
+Per-endpoint role notes are inline throughout this document (search for
+"MERCHANT_STAFF").
+
 ---
 
 ## Confirmed: multi-shop model
@@ -96,7 +134,13 @@ underlying service methods already support it).
 
 ## 1. Shops
 
-### `GET /api/v1/merchant/shops` — list the caller's shops
+### `GET /api/v1/merchant/shops` — list shops
+
+**Roles:** `MERCHANT`, `MERCHANT_STAFF`
+
+- `MERCHANT` — returns all shops owned by the caller.
+- `MERCHANT_STAFF` — returns a single-item list containing only the shop
+  matching the `shopId` claim in their JWT.
 
 **Response `200 OK`**
 
@@ -119,6 +163,8 @@ underlying service methods already support it).
 > just don't render those two fields yet.
 
 ### `POST /api/v1/merchant/shops` — create a shop
+
+**Role:** `MERCHANT` only (`MERCHANT_STAFF` → `403`)
 
 **Request body** — unchanged from the original spec:
 
@@ -144,9 +190,13 @@ which didn't have an explicit status machine).
 
 ### `GET /api/v1/merchant/shops/{shopId}` — full shop profile
 
+**Roles:** `MERCHANT` (owner), `MERCHANT_STAFF` (assigned shop only), `ADMIN`
+
 Returns the full [`Shop`](#shop) model.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}` — edit profile fields
+
+**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
 
 Same field set as create, all optional/partial. Also accepts `logoUrl`,
 `coverUrl`, `acceptsPickup`, `acceptsDelivery` (new — not in the original
@@ -156,7 +206,7 @@ send `[]` to clear all). If the shop was `DRAFT` and the edit fills in
 the last missing activation field, `status` flips to `ACTIVE`
 automatically as part of this call — no separate "activate" endpoint.
 
-### Logo / cover upload — presigned, two calls each
+### Logo / cover upload — `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
 
 Same pattern for both `logo` and `cover` (swap the path segment):
 
@@ -187,15 +237,19 @@ belong to this shop.
 
 ### `PATCH /api/v1/merchant/shops/{shopId}/status` — manual open/pause override
 
-Unchanged from the original spec.
+**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
 
 **Request body**: `{ "manuallyClosed": boolean, "reason": string? }`
 
 **Response `200 OK`** — updated [`Shop`](#shop).
 
-### `GET` / `PUT /api/v1/merchant/shops/{shopId}/hours` — opening hours
+### `GET /api/v1/merchant/shops/{shopId}/hours` — opening hours
 
-Unchanged from the original spec.
+**Roles:** `MERCHANT` (owner), `MERCHANT_STAFF` (assigned shop only), `ADMIN`
+
+### `PUT /api/v1/merchant/shops/{shopId}/hours` — replace opening hours
+
+**Role:** `MERCHANT` (owner) only (`MERCHANT_STAFF` → `403`)
 
 **`PUT` request body** — full week, replace-all:
 
@@ -222,6 +276,15 @@ windows (e.g. `21:00`→`02:00`).
 ## 2. Products & stock
 
 All under `/api/v1/merchant/shops/{shopId}/products`.
+
+**Every endpoint here — read and write — is open to both `MERCHANT`
+(owner) and `MERCHANT_STAFF` (assigned shop only), plus `ADMIN`.** This
+is the one place `MERCHANT_STAFF` gets real write access: create, edit,
+stock adjust, active toggle, photo upload/delete/set-primary — same
+permissions as `MERCHANT` here, scoped to the one shop in their JWT's
+`shopId` claim. (Verified live: a staff token created a product,
+adjusted its stock, and presigned a photo upload, all `2xx`.) Contrast
+with §1 Shops — shop-level settings there stay `MERCHANT`-only.
 
 ### `GET .../products` — list/search/paginate
 
@@ -389,6 +452,8 @@ then send it to the Security service to actually save.
 ## 3. Dashboard summary
 
 ### `GET /api/v1/merchant/shops/{shopId}/dashboard/summary`
+
+**Roles:** `MERCHANT` (owner), `MERCHANT_STAFF` (assigned shop only), `ADMIN`
 
 **Response `200 OK`**
 
@@ -630,4 +695,20 @@ byte-for-byte match with what was uploaded → delete the photo → the S3
 object is genuinely gone (confirmed via a direct `HeadObject` call, not
 just "removed from our database"). Shop logo upload (presign → `PUT` →
 confirm) and unsupported-content-type rejection were verified the same
-way. All matched this document.
+way. The new `/api/v1/users/me/photo` presign/confirm flow was verified
+against the real bucket the same way, plus its key-namespace check
+(rejecting a key outside the caller's own `users/{sub}/` prefix).
+
+**`MERCHANT_STAFF`, verified live with a genuine staff token from
+KONECTA-SECURITY-SERVICE** (real `roles`/`shopId` claims, not a
+synthetic one): a first pass caught a real gap — every product write
+endpoint had a leftover `MERCHANT`-only override that blocked staff
+despite the class-level rule allowing them, so `POST .../products` came
+back `403` when it should have been `201`. Fixed (removed the
+per-method overrides; product writes now inherit the controller's
+`MERCHANT`-or-`MERCHANT_STAFF` rule, scoped by the JWT's `shopId`
+claim) and re-verified: staff token created a product, adjusted its
+stock, and presigned a photo upload — all `2xx` — while `PATCH` on the
+shop profile stayed `403`. Swagger UI (`/swagger-ui.html`) and the raw
+spec (`/v3/api-docs`) were also confirmed reachable and listing every
+current endpoint, including the new photo/user-photo ones.
