@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -159,6 +160,53 @@ class MerchantFlowIntegrationTest {
         mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products")
                         .header("Authorization", intruderAuth))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void reSubmittingUnchangedCategoriesAndHours_doesNotViolateUniqueConstraint() throws Exception {
+        // Regression test: replace-all (delete-then-insert) on a unique
+        // (store_id, X) key must survive re-adding a row the store already
+        // had — Hibernate flushes all inserts before all deletes within one
+        // transaction regardless of call order, so this fails without an
+        // explicit flush between the delete and the insert.
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Reenvio", "address": "Rua X",
+                                  "city": "Maputo", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        // PATCH with the same categoryIds a second time
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"categoryIds\": [\"%s\"] }".formatted(supermercadoCategoryId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categories[0].code", is("SUPERMERCADO")));
+
+        String hoursBody = """
+                { "days": [ { "day": "SEGUNDA", "opensAt": "08:00", "closesAt": "18:00", "closed": false } ] }
+                """;
+        mockMvc.perform(put("/api/v1/merchant/shops/" + shopId + "/hours")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(hoursBody))
+                .andExpect(status().isOk());
+
+        // PUT the same hours a second time — this is the normal case for any
+        // settings-form re-save, not an edge case
+        mockMvc.perform(put("/api/v1/merchant/shops/" + shopId + "/hours")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(hoursBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].day", is("SEGUNDA")));
     }
 
     @Test

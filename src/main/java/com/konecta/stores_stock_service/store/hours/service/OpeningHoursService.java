@@ -40,6 +40,11 @@ public class OpeningHoursService {
     @Transactional
     public HoursResponse replaceHours(UUID storeId, UpdateHoursRequest request) {
         repository.deleteByStoreId(storeId);
+        // Hibernate flushes pending inserts before pending deletes regardless
+        // of call order — without this, re-adding the same day (store_id,
+        // day_of_week unchanged, the common case) would insert before the
+        // old row is deleted, violating the unique constraint.
+        repository.flush();
         List<OpeningHour> toSave = request.days().stream()
                 .map(d -> new OpeningHour(storeId, d.day(), d.closed() ? null : d.opensAt(),
                         d.closed() ? null : d.closesAt(), d.closed()))

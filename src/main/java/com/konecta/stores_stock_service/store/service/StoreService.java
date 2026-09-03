@@ -185,6 +185,12 @@ public class StoreService {
 
     private void replaceCategories(UUID storeId, List<UUID> categoryIds) {
         storeCategoryRepository.deleteByStoreId(storeId);
+        // Hibernate flushes all pending inserts before any pending deletes,
+        // regardless of call order — without this explicit flush, re-adding
+        // a category the store already had (same store_id/category_id) would
+        // insert the new row before the old one is deleted, violating the
+        // unique constraint.
+        storeCategoryRepository.flush();
         if (categoryIds == null || categoryIds.isEmpty()) {
             return;
         }
