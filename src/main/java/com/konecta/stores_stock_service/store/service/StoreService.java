@@ -12,6 +12,7 @@ import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
 import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.store.dto.AdminShopSummaryResponse;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
+import com.konecta.stores_stock_service.store.dto.PublicShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopStatusRequest;
@@ -24,10 +25,12 @@ import com.konecta.stores_stock_service.store.model.StoreStatus;
 import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
 import com.konecta.stores_stock_service.store.repository.StoreRepository;
 import com.konecta.stores_stock_service.common.PageResponse;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -112,6 +115,61 @@ public class StoreService {
                 null,
                 null,
                 store.getCreatedAt());
+    }
+
+    private static final double EARTH_RADIUS_KM = 6371.0;
+
+    /**
+     * Public, unauthenticated proximity browse: active shops carrying
+     * {@code categoryId}, sorted nearest-first from {@code (lat, lng)}.
+     * Shops with no location set are excluded rather than appended
+     * unsorted — they can't be meaningfully ranked, and it's a natural
+     * incentive for a merchant to finish shop setup (decided per the
+     * frontend's open "your call" in the proximity-browsing ask).
+     */
+    public PageResponse<PublicShopResponse> listPublicByCategory(UUID categoryId, double lat, double lng,
+            Pageable pageable) {
+        org.springframework.data.jpa.domain.Specification<Store> spec = (root, cq, cb) -> cb.and(
+                cb.equal(root.get("status"), StoreStatus.ACTIVE),
+                cb.isNotNull(root.get("latitude")),
+                cb.isNotNull(root.get("longitude")));
+        spec = spec.and((root, cq, cb) -> {
+            var subquery = cq.subquery(UUID.class);
+            var scRoot = subquery.from(StoreCategory.class);
+            subquery.select(scRoot.get("storeId")).where(cb.equal(scRoot.get("categoryId"), categoryId));
+            return root.get("id").in(subquery);
+        });
+
+        List<Store> candidates = storeRepository.findAll(spec, Pageable.unpaged()).getContent();
+        List<PublicShopResponse> sorted = candidates.stream()
+                .map(store -> toPublicResponse(store, haversineKm(lat, lng, store.getLatitude(), store.getLongitude())))
+                .sorted(Comparator.comparingDouble(PublicShopResponse::distanceKm))
+                .toList();
+
+        int from = Math.min((int) pageable.getOffset(), sorted.size());
+        int to = Math.min(from + pageable.getPageSize(), sorted.size());
+        List<PublicShopResponse> page = new ArrayList<>(sorted.subList(from, to));
+        return PageResponse.of(new PageImpl<>(page, pageable, sorted.size()));
+    }
+
+    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return EARTH_RADIUS_KM * c;
+    }
+
+    private PublicShopResponse toPublicResponse(Store store, double distanceKm) {
+        return new PublicShopResponse(
+                store.getId(),
+                store.getTradeName(),
+                presignedUrlOrNull(store.getLogoKey()),
+                presignedUrlOrNull(store.getCoverKey()),
+                isOpen(store),
+                Math.round(distanceKm * 100) / 100.0);
     }
 
     @Transactional
@@ -327,7 +385,8 @@ public class StoreService {
     private ShopCardResponse toCard(Store store) {
         boolean open = isOpen(store);
         long lowStock = lowStockCounter.countLowStock(store.getId());
-        return new ShopCardResponse(store.getId(), store.getTradeName(), presignedUrlOrNull(store.getLogoKey()), open, lowStock);
+        return new ShopCardResponse(store.getId(), store.getTradeName(), presignedUrlOrNull(store.getLogoKey()), open,
+                lowStock, categoriesOf(store.getId()));
     }
 
     private ShopResponse toResponse(Store store) {

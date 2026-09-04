@@ -111,6 +111,13 @@ class MerchantFlowIntegrationTest {
 
         String shopId = objectMapper.readTree(shopResponse).get("id").asText();
 
+        // list ("my shops") also carries categories, not just the single-shop GET
+        mockMvc.perform(get("/api/v1/merchant/shops")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id", is(shopId)))
+                .andExpect(jsonPath("$[0].categories[0].code", is("SUPERMERCADO")));
+
         String createProductBody = """
                 { "name": "Arroz 5kg", "description": "Arroz agulha", "subcategoryId": "%s",
                   "price": 350.0, "stockQuantity": 3, "lowStockThreshold": 5 }
@@ -762,5 +769,82 @@ class MerchantFlowIntegrationTest {
                         .param("categoryId", otherCategoryId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[?(@.id == '" + shopId + "')]").doesNotExist());
+    }
+
+    @Test
+    void publicShopsList_proximitySortedAndExcludesUnlocatedOrOtherCategory() throws Exception {
+        String owner = "owner-" + System.nanoTime();
+        String auth = merchantToken(owner);
+
+        String categoriesResponse = mockMvc.perform(get("/api/v1/meta/categories"))
+                .andReturn().getResponse().getContentAsString();
+        var categories = objectMapper.readTree(categoriesResponse);
+        String categoryId = categories.get(0).get("id").asText();
+        String otherCategoryId = categories.get(1).get("id").asText();
+
+        // near, right category
+        String nearId = createLocatedShop(auth, "Loja Perto", categoryId, "999000111", -25.9700, 32.5750);
+        // far, right category
+        String farId = createLocatedShop(auth, "Loja Longe", categoryId, "999000112", -25.8000, 32.7000);
+        // right category, no location -> excluded
+        String noLocationId = createShopNoLocation(auth, "Loja Sem Localizacao", categoryId, "999000113");
+        // located, wrong category -> excluded
+        String wrongCategoryId = createLocatedShop(auth, "Loja Outra Categoria", otherCategoryId, "999000114",
+                -25.9690, 32.5730);
+
+        // no Authorization header at all — public endpoint
+        String response = mockMvc.perform(get("/api/v1/shops")
+                        .param("categoryId", categoryId)
+                        .param("lat", "-25.9692")
+                        .param("lng", "32.5732"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        var content = objectMapper.readTree(response).get("content");
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        content.forEach(n -> ids.add(n.get("id").asText()));
+
+        org.assertj.core.api.Assertions.assertThat(ids).contains(nearId, farId);
+        org.assertj.core.api.Assertions.assertThat(ids.indexOf(nearId)).isLessThan(ids.indexOf(farId));
+        org.assertj.core.api.Assertions.assertThat(ids).doesNotContain(noLocationId, wrongCategoryId);
+
+        // missing required params -> 400 VALIDATION_ERROR
+        mockMvc.perform(get("/api/v1/shops").param("categoryId", categoryId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+    }
+
+    private String createLocatedShop(String auth, String name, String categoryId, String nuit, double lat, double lng)
+            throws Exception {
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "%s", "nuit": "%s", "address": "Rua P",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(name, nuit, categoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": " + lat + ", \"longitude\": " + lng + " }"))
+                .andExpect(status().isOk());
+        return shopId;
+    }
+
+    private String createShopNoLocation(String auth, String name, String categoryId, String nuit) throws Exception {
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "%s", "nuit": "%s", "address": "Rua P",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(name, nuit, categoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(shopResponse).get("id").asText();
     }
 }

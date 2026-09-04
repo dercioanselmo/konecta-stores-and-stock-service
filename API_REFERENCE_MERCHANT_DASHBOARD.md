@@ -20,6 +20,13 @@ revision's `PROPOSED` section; both items it asked for
 whenever convenient, no frontend changes needed since the contract
 matches what was proposed.
 
+**`GET /api/v1/shops` (proximity shop browsing) is now implemented** —
+see [Proximity shop browsing](#proximity-shop-browsing) below. This is
+the endpoint the anonymous-visitor shop-grid page was waiting on; the
+"não foi possível carregar as lojas" fallback should resolve once you
+re-verify against it. Covered by an automated test, not yet a live pass
+with real data — see that section's note.
+
 **Product photo and shop logo/cover upload is now implemented — via a
 private S3 bucket, not a multipart endpoint on this service.** This is a
 **breaking change from the previous revision of this doc**, which had it
@@ -235,10 +242,17 @@ above).
     "name": "Loja Real",
     "logoUrl": null,
     "isOpen": false,
-    "lowStockCount": 1
+    "lowStockCount": 1,
+    "categories": [
+      { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true, "imageUrl": null }
+    ]
   }
 ]
 ```
+
+`categories` (**new**) — same `Category[]` shape as the single-shop `GET`,
+added so the shop-picker dashboard can render a category badge per shop
+without an extra request. `[]` for a shop with no categories set.
 
 > **Changed from the original spec:** `todaySalesTotal` and
 > `pendingOrdersCount` are **not returned** — they require the
@@ -873,3 +887,79 @@ creation and the "my shops" list both correctly stay `403`. Full suite:
 **32/32 tests pass.** Worth a live pass with a real Admin token from
 KONECTA-SECURITY-SERVICE before calling this fully closed, the same way
 `MERCHANT_STAFF` above was — ping when convenient.
+
+
+
+---
+
+## Proximity shop browsing
+
+**Implemented** (2026-09-04) — this section previously described a
+proposal from the customer-flow ask (anonymous visitor browses category
+tiles → gated to sign up + set location → lands on a shop grid,
+nearest-first). It's built exactly as proposed, including the decision
+the ask left open.
+
+### `GET /api/v1/shops` — public, no auth required
+
+Same public-access model as `/meta/categories` — no token needed. The
+login/location gate is entirely a frontend UX decision; this endpoint
+doesn't enforce it.
+
+**Query params**
+
+| Param | Type | Notes |
+|---|---|---|
+| `categoryId` | uuid, required | `400 VALIDATION_ERROR` if missing |
+| `lat` | decimal, required | Caller's own latitude — this service has no way to look up a user's location itself, so the frontend passes what it already has from the logged-in customer's profile. `400 VALIDATION_ERROR` if missing |
+| `lng` | decimal, required | `400 VALIDATION_ERROR` if missing |
+| `page` | int | Default 0 |
+| `size` | int | Default 20 |
+
+**Behavior**: only `status=ACTIVE` shops carrying `categoryId`, sorted
+nearest-first from `(lat, lng)` (Haversine against the shop's own
+`latitude`/`longitude` — §1 [Location](#patch-apiv1merchantshopsshopidlocation--set-the-shops-gps-pin)).
+**Decided: shops with no location set are excluded**, not appended
+unsorted — they can't be meaningfully ranked, and it's a natural
+incentive for a merchant to finish shop setup (the open call the
+original ask left to us).
+
+**Response `200 OK`** — standard `Page<T>` envelope, each row:
+
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "logoUrl": "string | null",
+  "coverUrl": "string | null",
+  "isOpen": true,
+  "distanceKm": 1.4
+}
+```
+
+`distanceKm` is rounded to 2 decimal places.
+
+**Errors**: `400 VALIDATION_ERROR` if `categoryId`, `lat`, or `lng` is
+missing, e.g.:
+
+```json
+{ "code": "VALIDATION_ERROR", "message": "Falha na validação do pedido",
+  "details": ["lat: obrigatório", "lng: obrigatório"], "timestamp": "..." }
+```
+
+**Status**: covered by a new integration test
+(`publicShopsList_proximitySortedAndExcludesUnlocatedOrOtherCategory`)
+against the real Postgres-backed test stack — creates shops at known
+coordinates, confirms near-before-far ordering, confirms an unlocated
+shop and a wrong-category shop are both excluded, confirms the missing-
+param `400`. **Not yet live-verified with real customer data** — worth
+a live pass (real shops with real GPS pins, a real lat/lng from a
+device) before calling this fully closed.
+
+**PROPOSED small addition (2026-09-04)**: add `categories: Category[]`
+to this list response too — it's already on the single-shop `GET`, just
+missing here. Ask: the merchant's `/merchant` shop-picker dashboard wants
+to show each shop's category as a small badge without an extra request
+per shop. Frontend (`ShopSummary.categories?`) already treats it as
+optional and simply won't render a badge until this ships — no urgency,
+whenever convenient.

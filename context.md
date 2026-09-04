@@ -124,7 +124,7 @@ matching the `shopId` claim in their JWT.
 Card projection:
 
 ```json
-[{ "id", "name", "logoUrl", "isOpen", "lowStockCount" }]
+[{ "id", "name", "logoUrl", "isOpen", "lowStockCount", "categories": Category[] }]
 ```
 
 (`todaySalesTotal`, `pendingOrdersCount` omitted — Orders-dependent, see
@@ -443,6 +443,44 @@ service has nowhere to save it even if it wanted to.
 - `POST /api/v1/users/me/photo` — body `{ key }` → `200` `{ url }` (a
   presigned GET). `400 VALIDATION_ERROR` if the object isn't in S3 yet
   or `key` doesn't belong to the caller.
+
+## 6. Public shop browse (proximity)
+
+### `GET /api/v1/shops` — public, no auth (added to the `permitAll`
+matcher list in `SecurityConfig` alongside `/api/v1/meta/**`)
+
+For the anonymous customer flow: category tile → gate → shop grid,
+nearest-first. `PublicShopController` / `StoreService.listPublicByCategory`.
+
+Query: `categoryId*` (uuid), `lat*` (decimal), `lng*` (decimal) — all
+three required, `400 VALIDATION_ERROR` (not Spring's default missing-param
+500) if any is absent, since `@RequestParam` is declared `required = false`
+and checked manually — there's no `@ExceptionHandler` for
+`MissingServletRequestParameterException` in `GlobalExceptionHandler`, so
+a `required = true` param would have 500'd instead of giving a clean
+`VALIDATION_ERROR`. `page`, `size` as usual.
+
+Filter: `status = ACTIVE`, has `categoryId` in `store_categories` (same
+subquery pattern as `listForAdmin`'s `categoryId` filter), `latitude`/
+`longitude` both non-null. **Shops with no location are excluded, not
+appended unsorted** — an explicit decision (the ask left it open),
+because they can't be meaningfully ranked and it nudges merchants to
+finish shop setup.
+
+Sort: Haversine distance from `(lat, lng)` ascending, computed in Java
+(`StoreService.haversineKm`, `EARTH_RADIUS_KM = 6371.0`) over the
+filtered candidate list fetched unpaged, then paginated manually with
+`PageImpl` — same pattern as `ProductService.list`'s `lowStock` branch
+(can't push a computed-distance sort into the DB query without a
+PostGIS/native-query investment not justified for this dataset size).
+
+Response row: `{ id, name, logoUrl, coverUrl, isOpen, distanceKm }`,
+`distanceKm` rounded to 2 decimals. `logoUrl`/`coverUrl` are presigned
+GETs like everywhere else.
+
+Regression-tested in
+`MerchantFlowIntegrationTest#publicShopsList_proximitySortedAndExcludesUnlocatedOrOtherCategory`
+— not yet live-verified with real data.
 
 ## Data models
 
