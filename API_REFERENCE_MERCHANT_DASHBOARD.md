@@ -162,7 +162,10 @@ merchant-dashboard components at these paths with an Admin token.
 
 **Query params**: `query` (trade-name search, case-insensitive),
 `status` (one of `DRAFT`, `PENDING_REVIEW`, `ACTIVE`, `SUSPENDED`,
-`CLOSED`), `page`, `size`, `sort` (e.g. `createdAt,desc`).
+`CLOSED`), `categoryId` (**new** — uuid from `GET /api/v1/meta/categories`;
+returns only shops that have this top-level category in their
+`categoryIds`, for the "click a category → see its stores" flow), `page`,
+`size`, `sort` (e.g. `createdAt,desc`).
 
 **Response `200 OK`** — standard page envelope (same shape as
 `GET .../products`):
@@ -609,19 +612,22 @@ Active top-level categories, for a shop-category picker.
 
 ```json
 [
-  { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true },
-  { "id": "d604474a-b880-4bc4-83c2-7ce1054149eb", "code": "MODA", "name": "Moda", "sortOrder": 2, "active": true },
-  { "id": "5049977c-b938-4da5-9594-d07486195a55", "code": "ELETRONICA", "name": "Eletronica", "sortOrder": 3, "active": true },
-  { "id": "464d57b3-8b90-4bc0-ab0d-1f97d65c06ec", "code": "RESTAURANTE", "name": "Restaurante", "sortOrder": 4, "active": true },
-  { "id": "1450c832-1f9f-46ce-b6b9-d0974248be11", "code": "FARMACIA", "name": "Farmacia", "sortOrder": 5, "active": true },
-  { "id": "5a3ad256-2bb9-4cc7-988f-06bdbf690f9b", "code": "BELEZA", "name": "Beleza", "sortOrder": 6, "active": true },
-  { "id": "7836021c-87f4-4f85-a82b-7fde6e2614ff", "code": "CASA_E_JARDIM", "name": "Casa e Jardim", "sortOrder": 7, "active": true },
-  { "id": "1a4f40ec-342f-40f7-a209-8c45ac14d3f3", "code": "OUTROS", "name": "Outros", "sortOrder": 99, "active": true }
+  { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true, "imageUrl": "https://konecta-media-....s3.amazonaws.com/categories/12a1aaae.../xyz.png?X-Amz-..." },
+  { "id": "d604474a-b880-4bc4-83c2-7ce1054149eb", "code": "MODA", "name": "Moda", "sortOrder": 2, "active": true, "imageUrl": null },
+  { "id": "5049977c-b938-4da5-9594-d07486195a55", "code": "ELETRONICA", "name": "Eletronica", "sortOrder": 3, "active": true, "imageUrl": null },
+  { "id": "464d57b3-8b90-4bc0-ab0d-1f97d65c06ec", "code": "RESTAURANTE", "name": "Restaurante", "sortOrder": 4, "active": true, "imageUrl": null },
+  { "id": "1450c832-1f9f-46ce-b6b9-d0974248be11", "code": "FARMACIA", "name": "Farmacia", "sortOrder": 5, "active": true, "imageUrl": null },
+  { "id": "5a3ad256-2bb9-4cc7-988f-06bdbf690f9b", "code": "BELEZA", "name": "Beleza", "sortOrder": 6, "active": true, "imageUrl": null },
+  { "id": "7836021c-87f4-4f85-a82b-7fde6e2614ff", "code": "CASA_E_JARDIM", "name": "Casa e Jardim", "sortOrder": 7, "active": true, "imageUrl": null },
+  { "id": "1a4f40ec-342f-40f7-a209-8c45ac14d3f3", "code": "OUTROS", "name": "Outros", "sortOrder": 99, "active": true, "imageUrl": null }
 ]
 ```
 
 Ids are stable per environment but not guaranteed identical across
 environments — always resolve them via this endpoint, don't hardcode.
+`imageUrl` (**new**) is a presigned GET, same 1-hour-TTL/re-fetch-don't-cache
+rule as every other photo/logo/cover URL in this doc — `null` until an
+Admin sets one (see below).
 
 ### `GET /api/v1/meta/categories/{categoryId}/subcategories` — public
 
@@ -651,6 +657,24 @@ one**. Full contract in this service's `context.md` §2/§4. Not
 duplicated here since it's a different frontend's concern; flag if the
 merchant dashboard turns out to need any of it (e.g. a merchant
 requesting a new category) and it can be revisited.
+
+### Category image upload — `ROLE_ADMIN` only
+
+**New.** Same two-step presigned pattern as every other photo/logo/cover
+in this doc:
+
+- `POST /api/v1/admin/categories/{categoryId}/image/presign` — body
+  `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only) → `200`
+  `{ uploadUrl, key, expiresAt }`. `PUT` the raw bytes to `uploadUrl`
+  yourself, matching `Content-Type`, not through this API.
+- `POST /api/v1/admin/categories/{categoryId}/image` — body
+  `{ "key": "..." }` (the `key` from the presign step) → `200` the
+  updated `Category` (with `imageUrl` set), same "return the full
+  resource, not just the URL" convention as shop logo/cover.
+
+**Errors**: `400 VALIDATION_ERROR` if the object isn't in S3 yet, or
+`key` doesn't belong to this category; `404 CATEGORY_NOT_FOUND` for an
+unknown `categoryId`.
 
 ---
 
@@ -784,7 +808,9 @@ guessed shapes for them.
 
 ### `Category`
 
-`{ id, code, name, sortOrder, active }`
+`{ id, code, name, sortOrder, active, imageUrl }` — `imageUrl` (**new**)
+is a presigned GET, `null` until set via the admin image-upload endpoint
+above.
 
 ---
 

@@ -20,13 +20,16 @@ public class S3KeyFactory {
     private final String storesPrefix;
     private final String productsPrefix;
     private final String usersPrefix;
+    private final String categoriesPrefix;
 
     public S3KeyFactory(@Value("${aws.s3.stores-prefix}") String storesPrefix,
             @Value("${aws.s3.products-prefix}") String productsPrefix,
-            @Value("${aws.s3.users-prefix}") String usersPrefix) {
+            @Value("${aws.s3.users-prefix}") String usersPrefix,
+            @Value("${aws.s3.categories-prefix}") String categoriesPrefix) {
         this.storesPrefix = storesPrefix;
         this.productsPrefix = productsPrefix;
         this.usersPrefix = usersPrefix;
+        this.categoriesPrefix = categoriesPrefix;
     }
 
     public String requireValidContentType(String contentType) {
@@ -52,6 +55,10 @@ public class S3KeyFactory {
         return usersPrefix + userId + "/" + UUID.randomUUID() + EXTENSIONS.get(contentType);
     }
 
+    public String categoryImageKey(UUID categoryId, String contentType) {
+        return categoriesPrefix + categoryId + "/" + UUID.randomUUID() + EXTENSIONS.get(contentType);
+    }
+
     /** Guards against a client confirming a key it wasn't issued (wrong product/shop, or forged path). */
     public void requireOwnedKey(String key, String expectedPrefix) {
         if (key == null || !key.startsWith(expectedPrefix)) {
@@ -73,5 +80,9 @@ public class S3KeyFactory {
 
     public String userPhotoPrefix(String userId) {
         return usersPrefix + userId + "/";
+    }
+
+    public String categoryImagePrefix(UUID categoryId) {
+        return categoriesPrefix + categoryId + "/";
     }
 }

@@ -226,7 +226,9 @@ it's documented before them):
 ### Public reads (used by merchant pickers)
 
 - `GET /api/v1/meta/categories` — public, active categories:
-  `{ id, code, name, sortOrder, active }[]`.
+  `{ id, code, name, sortOrder, active, imageUrl }[]`. `imageUrl` is a
+  presigned GET (same TTL/re-fetch rule as every other photo in this
+  doc), `null` until an Admin sets one.
 - `GET /api/v1/meta/categories/{categoryId}/subcategories` — public,
   active subcategories under one category:
   `{ id, categoryId, categoryCode, categoryName, code, name, sortOrder,
@@ -246,6 +248,12 @@ it's documented before them):
 | `GET /{categoryId}` | |
 | `PATCH /{categoryId}` | Body `{ name?, sortOrder?, active? }` — `code` is immutable after creation (it's referenced by stores/subcategories). |
 | `DELETE /{categoryId}` | `204`. `409 CATEGORY_IN_USE` if it has subcategories or is assigned to any store — deactivate (`active: false`) instead. |
+| `POST /{categoryId}/image/presign` | Body `{ contentType }` → `200` `{ uploadUrl, key, expiresAt }`. New S3 key namespace `aws.s3.categories-prefix` (`categories/`, `S3KeyFactory.categoryImageKey`), separate from stores/products/users. |
+| `POST /{categoryId}/image` | Body `{ key }` → `200` updated `Category` (with `imageUrl`). `400 VALIDATION_ERROR` if not yet in S3 or `key` doesn't belong to this category (`S3KeyFactory.requireOwnedKey`, same pattern as shop logo/cover). |
+
+`categories.image_key` column added in `V7__category_images.sql`
+(nullable `varchar(500)`, no backfill needed — every existing category
+starts with no image).
 
 `/api/v1/admin/categories/{categoryId}/subcategories`
 
@@ -381,8 +389,10 @@ instead).
 
 Every shop on the platform, not scoped to any owner. Query params:
 `query` (trade-name search, case-insensitive substring), `status` (one
-of `StoreStatus`), `page`, `size`, `sort`. `200` → standard `PageResponse`
-envelope, rows:
+of `StoreStatus`), `categoryId` (**new** — uuid; filters to shops whose
+`store_categories` includes this top-level category, via a `Specification`
+subquery against `StoreCategory` — `StoreService.listForAdmin`), `page`,
+`size`, `sort`. `200` → standard `PageResponse` envelope, rows:
 
 ```json
 { "id", "name", "logoUrl", "status", "isOpen", "ownerId", "ownerName", "ownerEmail", "createdAt" }
@@ -445,7 +455,7 @@ acceptsDelivery, createdAt, updatedAt`
 
 ### `Category`
 
-`id, code, name, sortOrder, active`
+`id, code, name, sortOrder, active, imageUrl`
 
 ### `Subcategory`
 

@@ -4,6 +4,7 @@ import com.konecta.stores_stock_service.common.PageResponse;
 import com.konecta.stores_stock_service.store.dto.AdminShopSummaryResponse;
 import com.konecta.stores_stock_service.store.model.StoreStatus;
 import com.konecta.stores_stock_service.store.service.StoreService;
+import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,7 +34,8 @@ public class AdminShopController {
     public PageResponse<AdminShopSummaryResponse> list(
             @RequestParam(required = false) String query,
             @RequestParam(required = false) StoreStatus status,
+            @RequestParam(required = false) UUID categoryId,
             Pageable pageable) {
-        return storeService.listForAdmin(query, status, pageable);
+        return storeService.listForAdmin(query, status, categoryId, pageable);
     }
 }

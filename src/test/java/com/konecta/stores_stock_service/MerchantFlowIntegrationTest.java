@@ -686,4 +686,81 @@ class MerchantFlowIntegrationTest {
                         .header("Authorization", admin))
                 .andExpect(status().isNoContent());
     }
+
+    @Test
+    void categoryImage_presignConfirmAndPublicRead() throws Exception {
+        String admin = adminToken("admin-" + System.nanoTime());
+
+        String createCategoryBody = """
+                { "code": "PET_SHOP_IMG_%d", "name": "Pet Shop Imagem", "sortOrder": 60 }
+                """.formatted(System.nanoTime());
+        String categoryResponse = mockMvc.perform(post("/api/v1/admin/categories")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createCategoryBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.imageUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andReturn().getResponse().getContentAsString();
+        String categoryId = objectMapper.readTree(categoryResponse).get("id").asText();
+
+        // public read reflects no image yet
+        mockMvc.perform(get("/api/v1/meta/categories"))
+                .andExpect(status().isOk());
+
+        String imageKey = presign(admin, "/api/v1/admin/categories/" + categoryId + "/image/presign", "image/png");
+
+        mockMvc.perform(post("/api/v1/admin/categories/" + categoryId + "/image")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"" + imageKey + "\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").exists());
+
+        // public listing now carries a presigned imageUrl for this category
+        mockMvc.perform(get("/api/v1/meta/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '" + categoryId + "')].imageUrl").exists());
+
+        // a MERCHANT token cannot upload a category image
+        mockMvc.perform(post("/api/v1/admin/categories/" + categoryId + "/image/presign")
+                        .header("Authorization", merchantToken("some-merchant"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"contentType\": \"image/png\" }"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminShopsList_filtersByCategory() throws Exception {
+        String admin = adminToken("admin-" + System.nanoTime());
+        String owner = "owner-" + System.nanoTime();
+
+        String categoriesResponse = mockMvc.perform(get("/api/v1/meta/categories"))
+                .andReturn().getResponse().getContentAsString();
+        var categories = objectMapper.readTree(categoriesResponse);
+        String categoryId = categories.get(0).get("id").asText();
+        String otherCategoryId = categories.get(1).get("id").asText();
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", merchantToken(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Filtro Categoria", "nuit": "999888777", "address": "Rua F",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(categoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        mockMvc.perform(get("/api/v1/admin/shops")
+                        .header("Authorization", admin)
+                        .param("categoryId", categoryId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + shopId + "')]").exists());
+
+        mockMvc.perform(get("/api/v1/admin/shops")
+                        .header("Authorization", admin)
+                        .param("categoryId", otherCategoryId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + shopId + "')]").doesNotExist());
+    }
 }

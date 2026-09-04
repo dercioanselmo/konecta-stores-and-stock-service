@@ -7,6 +7,12 @@ import com.konecta.stores_stock_service.catalog.model.Category;
 import com.konecta.stores_stock_service.catalog.repository.CategoryRepository;
 import com.konecta.stores_stock_service.catalog.repository.SubcategoryRepository;
 import com.konecta.stores_stock_service.common.ApiException;
+import com.konecta.stores_stock_service.common.storage.ObjectStorageService;
+import com.konecta.stores_stock_service.common.storage.PresignedUpload;
+import com.konecta.stores_stock_service.common.storage.S3KeyFactory;
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.store.repository.StoreCategoryRepository;
 import java.util.List;
 import java.util.UUID;
@@ -19,12 +25,17 @@ public class CategoryAdminService {
     private final CategoryRepository categoryRepository;
     private final SubcategoryRepository subcategoryRepository;
     private final StoreCategoryRepository storeCategoryRepository;
+    private final ObjectStorageService objectStorageService;
+    private final S3KeyFactory s3KeyFactory;
 
     public CategoryAdminService(CategoryRepository categoryRepository, SubcategoryRepository subcategoryRepository,
-            StoreCategoryRepository storeCategoryRepository) {
+            StoreCategoryRepository storeCategoryRepository, ObjectStorageService objectStorageService,
+            S3KeyFactory s3KeyFactory) {
         this.categoryRepository = categoryRepository;
         this.subcategoryRepository = subcategoryRepository;
         this.storeCategoryRepository = storeCategoryRepository;
+        this.objectStorageService = objectStorageService;
+        this.s3KeyFactory = s3KeyFactory;
     }
 
     public List<CategoryResponse> list() {
@@ -79,13 +90,33 @@ public class CategoryAdminService {
         categoryRepository.delete(category);
     }
 
+    public PresignUploadResponse presignImageUpload(UUID categoryId, PresignUploadRequest request) {
+        getEntity(categoryId);
+        String contentType = s3KeyFactory.requireValidContentType(request.contentType());
+        String key = s3KeyFactory.categoryImageKey(categoryId, contentType);
+        PresignedUpload upload = objectStorageService.presignUpload(key, contentType);
+        return new PresignUploadResponse(upload.uploadUrl(), upload.key(), upload.expiresAt());
+    }
+
+    @Transactional
+    public CategoryResponse confirmImageUpload(UUID categoryId, ConfirmUploadRequest request) {
+        Category category = getEntity(categoryId);
+        s3KeyFactory.requireOwnedKey(request.key(), s3KeyFactory.categoryImagePrefix(categoryId));
+        if (!objectStorageService.exists(request.key())) {
+            throw ApiException.validation(List.of("key: ficheiro não encontrado — confirme após o upload terminar"));
+        }
+        category.setImageKey(request.key());
+        return toResponse(category);
+    }
+
     private Category getEntity(UUID categoryId) {
         return categoryRepository.findById(categoryId)
                 .orElseThrow(() -> ApiException.notFound("CATEGORY_NOT_FOUND", "Categoria não encontrada"));
     }
 
     private CategoryResponse toResponse(Category category) {
+        String imageUrl = category.getImageKey() == null ? null : objectStorageService.presignDownload(category.getImageKey());
         return new CategoryResponse(category.getId(), category.getCode(), category.getName(),
-                category.getSortOrder(), category.isActive());
+                category.getSortOrder(), category.isActive(), imageUrl);
     }
 }

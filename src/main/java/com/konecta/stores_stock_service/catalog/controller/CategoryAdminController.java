@@ -5,6 +5,9 @@ import com.konecta.stores_stock_service.catalog.dto.CreateCategoryRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateCategoryRequest;
 import com.konecta.stores_stock_service.catalog.model.Product;
 import com.konecta.stores_stock_service.catalog.service.CategoryAdminService;
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -60,5 +63,17 @@ public class CategoryAdminController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID categoryId) {
         categoryAdminService.delete(categoryId);
+    }
+
+    @PostMapping("/{categoryId}/image/presign")
+    public PresignUploadResponse presignImage(@PathVariable UUID categoryId,
+            @Valid @RequestBody PresignUploadRequest request) {
+        return categoryAdminService.presignImageUpload(categoryId, request);
+    }
+
+    @PostMapping("/{categoryId}/image")
+    public CategoryResponse confirmImage(@PathVariable UUID categoryId,
+            @Valid @RequestBody ConfirmUploadRequest request) {
+        return categoryAdminService.confirmImageUpload(categoryId, request);
     }
 }

@@ -80,7 +80,8 @@ public class StoreService {
      * {@code ownerId} (the JWT {@code sub} the shop was created under) is
      * available today.
      */
-    public PageResponse<AdminShopSummaryResponse> listForAdmin(String query, StoreStatus status, Pageable pageable) {
+    public PageResponse<AdminShopSummaryResponse> listForAdmin(String query, StoreStatus status, UUID categoryId,
+            Pageable pageable) {
         org.springframework.data.jpa.domain.Specification<Store> spec = (root, cq, cb) -> cb.conjunction();
         if (query != null && !query.isBlank()) {
             String like = "%" + query.toLowerCase() + "%";
@@ -88,6 +89,14 @@ public class StoreService {
         }
         if (status != null) {
             spec = spec.and((root, cq, cb) -> cb.equal(root.get("status"), status));
+        }
+        if (categoryId != null) {
+            spec = spec.and((root, cq, cb) -> {
+                var subquery = cq.subquery(UUID.class);
+                var scRoot = subquery.from(StoreCategory.class);
+                subquery.select(scRoot.get("storeId")).where(cb.equal(scRoot.get("categoryId"), categoryId));
+                return root.get("id").in(subquery);
+            });
         }
         return PageResponse.of(storeRepository.findAll(spec, pageable).map(this::toAdminSummary));
     }
@@ -306,7 +315,8 @@ public class StoreService {
         }
         return categoryRepository.findAllById(categoryIds).stream()
                 .sorted(Comparator.comparing(Category::getSortOrder))
-                .map(c -> new CategoryResponse(c.getId(), c.getCode(), c.getName(), c.getSortOrder(), c.isActive()))
+                .map(c -> new CategoryResponse(c.getId(), c.getCode(), c.getName(), c.getSortOrder(), c.isActive(),
+                        presignedUrlOrNull(c.getImageKey())))
                 .toList();
     }
 
