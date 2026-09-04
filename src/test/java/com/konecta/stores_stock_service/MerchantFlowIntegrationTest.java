@@ -847,4 +847,159 @@ class MerchantFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(shopResponse).get("id").asText();
     }
+
+    @Test
+    void publicShopDetail_returnsCategoriesAndHidesNonActiveShops() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Detalhe", "nuit": "111222888", "address": "Rua D",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        // public, no Authorization header at all
+        mockMvc.perform(get("/api/v1/shops/" + shopId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(shopId)))
+                .andExpect(jsonPath("$.categories[0].code", is("SUPERMERCADO")));
+
+        // a DRAFT shop (missing nuit) is not publicly visible
+        String draftResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Rascunho", "address": "Rua R", "city": "Maputo" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status", is("DRAFT")))
+                .andReturn().getResponse().getContentAsString();
+        String draftId = objectMapper.readTree(draftResponse).get("id").asText();
+
+        mockMvc.perform(get("/api/v1/shops/" + draftId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("SHOP_NOT_FOUND")));
+
+        mockMvc.perform(get("/api/v1/shops/" + draftId + "/products"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("SHOP_NOT_FOUND")));
+
+        mockMvc.perform(get("/api/v1/shops/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void publicShopProducts_onlyActiveAndFilterableBySubcategory() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Produtos Publicos", "nuit": "111222999", "address": "Rua PP",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String subcategories = mockMvc.perform(get("/api/v1/meta/categories/" + supermercadoCategoryId + "/subcategories"))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode subcategoriesJson = objectMapper.readTree(subcategories);
+        String otherSubcategoryId = subcategoriesJson.get(1).get("id").asText();
+
+        String activeInLegumes = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Tomate", "description": "fresco", "subcategoryId": "%s",
+                                  "price": 50.0, "stockQuantity": 10 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String tomateId = objectMapper.readTree(activeInLegumes).get("id").asText();
+
+        String activeInOther = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Detergente", "description": "limpeza", "subcategoryId": "%s",
+                                  "price": 80.0, "stockQuantity": 10 }
+                                """.formatted(otherSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String detergenteId = objectMapper.readTree(activeInOther).get("id").asText();
+
+        String inactiveResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Descontinuado", "description": "n/a", "subcategoryId": "%s",
+                                  "price": 10.0, "stockQuantity": 1, "active": false }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String inactiveId = objectMapper.readTree(inactiveResponse).get("id").asText();
+
+        // public, no auth — both active products, not the inactive one
+        String allResponse = mockMvc.perform(get("/api/v1/shops/" + shopId + "/products"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode allContent = objectMapper.readTree(allResponse).get("content");
+        java.util.List<String> allIds = new java.util.ArrayList<>();
+        allContent.forEach(n -> allIds.add(n.get("id").asText()));
+        org.assertj.core.api.Assertions.assertThat(allIds).contains(tomateId, detergenteId);
+        org.assertj.core.api.Assertions.assertThat(allIds).doesNotContain(inactiveId);
+
+        // filtered by subcategory
+        mockMvc.perform(get("/api/v1/shops/" + shopId + "/products").param("subcategoryId", legumesSubcategoryId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id", is(tomateId)))
+                .andExpect(jsonPath("$.content[0].name", is("Tomate")))
+                .andExpect(jsonPath("$.content.length()", is(1)));
+    }
+
+    @Test
+    void subcategoryImage_presignConfirmAndPublicRead() throws Exception {
+        String admin = adminToken("admin-" + System.nanoTime());
+
+        String createSubcategoryBody = """
+                { "code": "GRAOS_%d", "name": "Graos" }
+                """.formatted(System.nanoTime());
+        String subcategoryResponse = mockMvc.perform(post("/api/v1/admin/categories/" + supermercadoCategoryId + "/subcategories")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createSubcategoryBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.imageUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andReturn().getResponse().getContentAsString();
+        String subcategoryId = objectMapper.readTree(subcategoryResponse).get("id").asText();
+
+        String imageKey = presign(admin,
+                "/api/v1/admin/categories/" + supermercadoCategoryId + "/subcategories/" + subcategoryId + "/image/presign",
+                "image/jpeg");
+
+        mockMvc.perform(post("/api/v1/admin/categories/" + supermercadoCategoryId + "/subcategories/" + subcategoryId + "/image")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"key\": \"" + imageKey + "\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").exists());
+
+        mockMvc.perform(get("/api/v1/meta/categories/" + supermercadoCategoryId + "/subcategories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '" + subcategoryId + "')].imageUrl").exists());
+
+        // a MERCHANT token cannot upload a subcategory image
+        mockMvc.perform(post("/api/v1/admin/categories/" + supermercadoCategoryId + "/subcategories/" + subcategoryId + "/image/presign")
+                        .header("Authorization", merchantToken("some-merchant"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"contentType\": \"image/jpeg\" }"))
+                .andExpect(status().isForbidden());
+    }
 }

@@ -26,6 +26,25 @@ A single Spring Boot microservice that is the system of record for:
 
 **Do not maintain a full endpoint catalogue in this AGENTS.md.** Endpoints are introduced incrementally via `context.md` + OpenAPI.
 
+
+---
+# test users:
+## Admin:
+username: dercio.anselmo@yahoo.com
+password: EmitaSpencer13
+
+## Store admin or MERCHANT
+username: dercio.anselmo@zohomail.com
+password: EmitaSpencer13
+
+## MERCHANT_STAFF ou Funcionario
+username: dercio.miguel@zohomail.com
+password: Emit@Spencer13
+
+## Customer
+username: dercio.miguel@gmail.com
+password: EmitaSpencer13
+
 ---
 
 # 2. Upstream dependency: Security service

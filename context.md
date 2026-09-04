@@ -264,6 +264,11 @@ starts with no image).
 | `GET /{subcategoryId}` | `404 SUBCATEGORY_NOT_FOUND` if it doesn't exist or belongs to a different category. |
 | `PATCH /{subcategoryId}` | Body `{ name?, sortOrder?, active? }` — `code` immutable. |
 | `DELETE /{subcategoryId}` | `204`. `409 SUBCATEGORY_IN_USE` if any product references it. |
+| `POST /{subcategoryId}/image/presign` | Body `{ contentType }` → `200` `{ uploadUrl, key, expiresAt }`. Key under the same `aws.s3.categories-prefix`, nested one level: `categories/subcategories/{subcategoryId}/...` (`S3KeyFactory.subcategoryImageKey`) — no new prefix property needed. |
+| `POST /{subcategoryId}/image` | Body `{ key }` → `200` updated `Subcategory` (with `imageUrl`). Same validation/ownership rules as category images. |
+
+`subcategories.image_key` column added in `V8__subcategory_images.sql`
+(nullable `varchar(500)`, no backfill needed).
 
 Seeded data: `V2__seed_categories.sql` (8 top-level categories) and
 `V4__seed_subcategories.sql` (a starter set per category, e.g. 8 under
@@ -482,6 +487,48 @@ Regression-tested in
 `MerchantFlowIntegrationTest#publicShopsList_proximitySortedAndExcludesUnlocatedOrOtherCategory`
 — not yet live-verified with real data.
 
+## 7. Public store → subcategory → product browsing
+
+All under `PublicShopController` (`/api/v1/shops/**`, `permitAll`).
+
+### `GET /api/v1/shops/{shopId}` — public single-shop detail
+
+`StoreService.getPublicDetail` → `StoreService.getActivePublic(shopId)`
+(shared with §7's products endpoint below) resolves the shop and
+**requires `status == ACTIVE`**, else `404 SHOP_NOT_FOUND` — same
+non-owner-confirmation-avoidance pattern as the authenticated endpoints,
+just applied to "is this shop even publicly visible" instead of
+ownership. Response: `{ id, name, logoUrl, coverUrl, isOpen, categories: Category[] }`
+— `categories` reuses `categoriesOf`, same helper the authenticated
+`Shop` model uses.
+
+### `GET /api/v1/shops/{shopId}/products` — public products-in-a-shop list
+
+`ProductService.listPublicByShop(shopId, subcategoryId, pageable)` —
+caller (`PublicShopController`) calls `getActivePublic(shopId)` first so
+a non-active/unknown shop 404s before this even runs. Filter:
+`storeId == shopId AND status IN (ACTIVE, OUT_OF_STOCK)` (same
+"active" definition as `Product.isActive()`), optional `subcategoryId`
+exact-match filter. Response row: `{ id, name, photoUrl }` — no
+price/stock, deliberately (that's the future order-flow's concern, not
+this). `photoUrl` = the product's primary `ProductImage`'s presigned
+GET, `null` if no photos yet.
+
+### Subcategory images
+
+Same gap as category images, filled the same way — see §2's admin
+subcategory table above for the two new endpoints and the migration.
+`imageUrl` now flows through `SubcategoryResponse` everywhere it's
+built: `SubcategoryAdminService.toResponse`, and the public
+`CategoryController.subcategories()` (previously missing it entirely —
+subcategories had zero image support before this round).
+
+Regression-tested in
+`MerchantFlowIntegrationTest#publicShopDetail_returnsCategoriesAndHidesNonActiveShops`,
+`#publicShopProducts_onlyActiveAndFilterableBySubcategory`,
+`#subcategoryImage_presignConfirmAndPublicRead` — not yet live-verified
+with real data (same open item as §6).
+
 ## Data models
 
 ### `Shop`
@@ -498,7 +545,7 @@ acceptsDelivery, createdAt, updatedAt`
 ### `Subcategory`
 
 `id, categoryId, categoryCode, categoryName, code, name, sortOrder,
-active`
+active, imageUrl`
 
 ### `Product`
 

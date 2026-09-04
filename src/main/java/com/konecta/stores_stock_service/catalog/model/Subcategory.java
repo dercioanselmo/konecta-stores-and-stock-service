@@ -36,4 +36,7 @@ public class Subcategory {
     private int sortOrder;
 
     private boolean active = true;
+
+    @Column(name = "image_key")
+    private String imageKey;
 }

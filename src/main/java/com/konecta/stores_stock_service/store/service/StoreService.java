@@ -12,6 +12,7 @@ import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
 import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.store.dto.AdminShopSummaryResponse;
 import com.konecta.stores_stock_service.store.dto.CreateShopRequest;
+import com.konecta.stores_stock_service.store.dto.PublicShopDetailResponse;
 import com.konecta.stores_stock_service.store.dto.PublicShopResponse;
 import com.konecta.stores_stock_service.store.dto.ShopCardResponse;
 import com.konecta.stores_stock_service.store.dto.ShopResponse;
@@ -160,6 +161,32 @@ public class StoreService {
                 * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return EARTH_RADIUS_KM * c;
+    }
+
+    /**
+     * Public, unauthenticated shop-existence check: only an {@code ACTIVE}
+     * shop is considered "found" — same non-existence-confirmation
+     * avoidance as the authenticated {@code getOwned} paths, just without
+     * an owner/staff/admin bypass since there's no caller identity here.
+     */
+    public Store getActivePublic(UUID shopId) {
+        Store store = storeRepository.findById(shopId)
+                .orElseThrow(() -> ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada"));
+        if (store.getStatus() != StoreStatus.ACTIVE) {
+            throw ApiException.notFound("SHOP_NOT_FOUND", "Loja não encontrada");
+        }
+        return store;
+    }
+
+    public PublicShopDetailResponse getPublicDetail(UUID shopId) {
+        Store store = getActivePublic(shopId);
+        return new PublicShopDetailResponse(
+                store.getId(),
+                store.getTradeName(),
+                presignedUrlOrNull(store.getLogoKey()),
+                presignedUrlOrNull(store.getCoverKey()),
+                isOpen(store),
+                categoriesOf(store.getId()));
     }
 
     private PublicShopResponse toPublicResponse(Store store, double distanceKm) {

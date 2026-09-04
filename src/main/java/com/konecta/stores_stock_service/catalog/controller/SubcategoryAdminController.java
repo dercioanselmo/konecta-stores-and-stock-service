@@ -4,6 +4,9 @@ import com.konecta.stores_stock_service.catalog.dto.CreateSubcategoryRequest;
 import com.konecta.stores_stock_service.catalog.dto.SubcategoryResponse;
 import com.konecta.stores_stock_service.catalog.dto.UpdateSubcategoryRequest;
 import com.konecta.stores_stock_service.catalog.service.SubcategoryAdminService;
+import com.konecta.stores_stock_service.common.storage.dto.ConfirmUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
+import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -56,5 +59,17 @@ public class SubcategoryAdminController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID categoryId, @PathVariable UUID subcategoryId) {
         subcategoryAdminService.delete(categoryId, subcategoryId);
+    }
+
+    @PostMapping("/{subcategoryId}/image/presign")
+    public PresignUploadResponse presignImage(@PathVariable UUID categoryId, @PathVariable UUID subcategoryId,
+            @Valid @RequestBody PresignUploadRequest request) {
+        return subcategoryAdminService.presignImageUpload(categoryId, subcategoryId, request);
+    }
+
+    @PostMapping("/{subcategoryId}/image")
+    public SubcategoryResponse confirmImage(@PathVariable UUID categoryId, @PathVariable UUID subcategoryId,
+            @Valid @RequestBody ConfirmUploadRequest request) {
+        return subcategoryAdminService.confirmImageUpload(categoryId, subcategoryId, request);
     }
 }

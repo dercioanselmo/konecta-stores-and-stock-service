@@ -10,5 +10,6 @@ public record SubcategoryResponse(
         String code,
         String name,
         int sortOrder,
-        boolean active) {
+        boolean active,
+        String imageUrl) {
 }

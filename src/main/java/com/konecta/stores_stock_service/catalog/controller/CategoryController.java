@@ -48,7 +48,8 @@ public class CategoryController {
                 .orElseThrow(() -> ApiException.notFound("CATEGORY_NOT_FOUND", "Categoria não encontrada"));
         return subcategoryRepository.findByCategoryIdAndActiveTrueOrderBySortOrderAsc(categoryId).stream()
                 .map(s -> new SubcategoryResponse(s.getId(), category.getId(), category.getCode(), category.getName(),
-                        s.getCode(), s.getName(), s.getSortOrder(), s.isActive()))
+                        s.getCode(), s.getName(), s.getSortOrder(), s.isActive(),
+                        s.getImageKey() == null ? null : objectStorageService.presignDownload(s.getImageKey())))
                 .toList();
     }
 }

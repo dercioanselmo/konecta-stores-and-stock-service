@@ -59,6 +59,10 @@ public class S3KeyFactory {
         return categoriesPrefix + categoryId + "/" + UUID.randomUUID() + EXTENSIONS.get(contentType);
     }
 
+    public String subcategoryImageKey(UUID subcategoryId, String contentType) {
+        return categoriesPrefix + "subcategories/" + subcategoryId + "/" + UUID.randomUUID() + EXTENSIONS.get(contentType);
+    }
+
     /** Guards against a client confirming a key it wasn't issued (wrong product/shop, or forged path). */
     public void requireOwnedKey(String key, String expectedPrefix) {
         if (key == null || !key.startsWith(expectedPrefix)) {
@@ -84,5 +88,9 @@ public class S3KeyFactory {
 
     public String categoryImagePrefix(UUID categoryId) {
         return categoriesPrefix + categoryId + "/";
+    }
+
+    public String subcategoryImagePrefix(UUID subcategoryId) {
+        return categoriesPrefix + "subcategories/" + subcategoryId + "/";
     }
 }

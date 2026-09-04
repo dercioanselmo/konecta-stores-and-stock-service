@@ -1,7 +1,10 @@
 package com.konecta.stores_stock_service.store.controller;
 
+import com.konecta.stores_stock_service.catalog.dto.PublicProductSummaryResponse;
+import com.konecta.stores_stock_service.catalog.service.ProductService;
 import com.konecta.stores_stock_service.common.ApiException;
 import com.konecta.stores_stock_service.common.PageResponse;
+import com.konecta.stores_stock_service.store.dto.PublicShopDetailResponse;
 import com.konecta.stores_stock_service.store.dto.PublicShopResponse;
 import com.konecta.stores_stock_service.store.service.StoreService;
 import java.util.ArrayList;
@@ -9,6 +12,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicShopController {
 
     private final StoreService storeService;
+    private final ProductService productService;
 
-    public PublicShopController(StoreService storeService) {
+    public PublicShopController(StoreService storeService, ProductService productService) {
         this.storeService = storeService;
+        this.productService = productService;
     }
 
     @GetMapping
@@ -48,5 +54,17 @@ public class PublicShopController {
             throw ApiException.validation(errors);
         }
         return storeService.listPublicByCategory(categoryId, lat, lng, pageable);
+    }
+
+    @GetMapping("/{shopId}")
+    public PublicShopDetailResponse get(@PathVariable UUID shopId) {
+        return storeService.getPublicDetail(shopId);
+    }
+
+    @GetMapping("/{shopId}/products")
+    public PageResponse<PublicProductSummaryResponse> products(@PathVariable UUID shopId,
+            @RequestParam(required = false) UUID subcategoryId, Pageable pageable) {
+        storeService.getActivePublic(shopId);
+        return productService.listPublicByShop(shopId, subcategoryId, pageable);
     }
 }

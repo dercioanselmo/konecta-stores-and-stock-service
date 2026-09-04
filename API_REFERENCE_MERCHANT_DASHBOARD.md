@@ -27,6 +27,12 @@ the endpoint the anonymous-visitor shop-grid page was waiting on; the
 re-verify against it. Covered by an automated test, not yet a live pass
 with real data — see that section's note.
 
+**Store → subcategory → product browsing is now implemented** — see
+[Store → subcategory → product browsing](#store--subcategory--product-browsing)
+below: public single-shop detail, subcategory images, and public
+products-in-a-shop listing. Same "automated test, not yet live-verified"
+status as the proximity endpoint above.
+
 **Product photo and shop logo/cover upload is now implemented — via a
 private S3 bucket, not a multipart endpoint on this service.** This is a
 **breaking change from the previous revision of this doc**, which had it
@@ -655,9 +661,13 @@ shop (or is browsing).
 [
   { "id": "9223fbef-3099-493f-917d-226a8ee6b8d8", "categoryId": "12a1aaae-42d6-413d-8a86-ab951482fb93",
     "categoryCode": "SUPERMERCADO", "categoryName": "Supermercado",
-    "code": "LEGUMES_E_FRUTAS", "name": "Legumes e Frutas", "sortOrder": 1, "active": true }
+    "code": "LEGUMES_E_FRUTAS", "name": "Legumes e Frutas", "sortOrder": 1, "active": true, "imageUrl": null }
 ]
 ```
+
+`imageUrl` (**new**) — same presigned-GET rule as `Category.imageUrl`,
+`null` until an Admin sets one (see
+[Subcategory images](#subcategory-images--role_admin-only)).
 
 **Errors**: `404 CATEGORY_NOT_FOUND` for an unknown `categoryId`.
 
@@ -826,6 +836,11 @@ guessed shapes for them.
 is a presigned GET, `null` until set via the admin image-upload endpoint
 above.
 
+### `Subcategory`
+
+`{ id, categoryId, categoryCode, categoryName, code, name, sortOrder,
+active, imageUrl }` — `imageUrl` (**new**) same rule as `Category`'s.
+
 ---
 
 ## Verified live
@@ -956,10 +971,108 @@ param `400`. **Not yet live-verified with real customer data** — worth
 a live pass (real shops with real GPS pins, a real lat/lng from a
 device) before calling this fully closed.
 
-**PROPOSED small addition (2026-09-04)**: add `categories: Category[]`
-to this list response too — it's already on the single-shop `GET`, just
-missing here. Ask: the merchant's `/merchant` shop-picker dashboard wants
-to show each shop's category as a small badge without an extra request
-per shop. Frontend (`ShopSummary.categories?`) already treats it as
-optional and simply won't render a badge until this ships — no urgency,
-whenever convenient.
+**Done**: `categories: Category[]` was added to
+[`GET /merchant/shops`](#get-apiv1merchantshops--list-shops) (see §1
+above) — matches the single-shop `GET`'s shape, `[]` for a shop with no
+categories set.
+
+---
+
+## Store → subcategory → product browsing
+
+**Implemented** (2026-09-04) — the next step after the proximity shop
+grid: select a shop → see its categories as photo boxes → select one →
+see its (public) subcategory list via the existing
+`GET /meta/categories/{categoryId}/subcategories` → select a subcategory
+→ see that shop's products in it as photo boxes. All three gaps from the
+ask are closed, all public/unauthenticated, matching the rest of the
+customer browsing surface.
+
+### `GET /api/v1/shops/{shopId}` — public single-shop detail
+
+**Role:** none — public, no auth required, same as `GET /api/v1/shops`.
+
+**Response `200 OK`**
+
+```json
+{
+  "id": "14b4dbe9-d975-4d75-9bb7-39118dcd5828",
+  "name": "Loja Real",
+  "logoUrl": null,
+  "coverUrl": null,
+  "isOpen": false,
+  "categories": [
+    { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true, "imageUrl": null }
+  ]
+}
+```
+
+`categories` is what tells the frontend which subcategories to fetch
+next — reuse the existing public
+`GET /api/v1/meta/categories/{categoryId}/subcategories` for each one,
+no new endpoint needed for that step (as the ask itself already noted).
+
+**Errors**: `404 SHOP_NOT_FOUND` — for an unknown `shopId`, **and** for a
+real but non-`ACTIVE` shop (`DRAFT`/`PENDING_REVIEW`/`SUSPENDED`/`CLOSED`).
+Same non-existence-confirmation pattern used everywhere else in this
+doc: a shop that exists but shouldn't be publicly visible looks
+identical, from the outside, to one that doesn't exist at all.
+
+### Subcategory images — `ROLE_ADMIN` only
+
+**New.** Same gap as category images (see
+[Category image upload](#category-image-upload--role_admin-only)),
+filled the same way, for `Subcategory`:
+
+- `POST /api/v1/admin/categories/{categoryId}/subcategories/{subcategoryId}/image/presign`
+  — body `{ "contentType": "image/jpeg" }` (JPEG/PNG/WEBP only) → `200`
+  `{ uploadUrl, key, expiresAt }`.
+- `POST /api/v1/admin/categories/{categoryId}/subcategories/{subcategoryId}/image`
+  — body `{ "key": "..." }` → `200` the updated `Subcategory` (with
+  `imageUrl` set).
+
+`imageUrl` (**new**) is now on `Subcategory` everywhere it appears,
+including the public `GET /api/v1/meta/categories/{categoryId}/subcategories`
+— `null` until an Admin sets one, same presigned-GET/1-hour-TTL rule as
+every other image in this doc.
+
+**Errors**: same shape as category images — `400 VALIDATION_ERROR` if
+the object isn't in S3 yet or `key` doesn't belong to this subcategory;
+`404 CATEGORY_NOT_FOUND` / `404 SUBCATEGORY_NOT_FOUND` as appropriate.
+
+### `GET /api/v1/shops/{shopId}/products` — public products-in-a-shop list
+
+**Role:** none — public, no auth required.
+
+Deliberately minimal, matching the ask exactly — **no price or stock**,
+that's coming with the actual order flow, not this. Only `active` (or
+`out of stock`, same "active" definition used everywhere else in this
+API) products.
+
+**Query params**: `subcategoryId` (uuid, optional — scope to one
+subcategory of the shop), `page`, `size`.
+
+**Response `200 OK`** — standard `Page<T>` envelope, each row:
+
+```json
+{ "id": "uuid", "name": "string", "photoUrl": "string | null" }
+```
+
+`photoUrl` is the product's primary photo (same photo `Product.photos[]`
+already tracks elsewhere in this API) — presigned GET, `null` if the
+product has no photos yet.
+
+**Errors**: `404 SHOP_NOT_FOUND` for an unknown or non-`ACTIVE` shop —
+same rule as the shop-detail endpoint above.
+
+**Status**: covered by new integration tests
+(`publicShopDetail_returnsCategoriesAndHidesNonActiveShops`,
+`publicShopProducts_onlyActiveAndFilterableBySubcategory`,
+`subcategoryImage_presignConfirmAndPublicRead`) against the real
+Postgres-backed test stack. **Not yet live-verified with real data** —
+same open item as the proximity-browsing endpoint above.
+
+**Frontend status** (per the ask): fully built
+(`app/stores/[storeId]/page.tsx`, `app/stores/[storeId]/subcategories/[subcategoryId]/page.tsx`),
+degrading gracefully until now; should just work once you re-verify
+against these three endpoints.

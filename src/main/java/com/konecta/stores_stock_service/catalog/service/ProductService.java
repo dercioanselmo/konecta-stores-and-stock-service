@@ -3,6 +3,7 @@ package com.konecta.stores_stock_service.catalog.service;
 import com.konecta.stores_stock_service.catalog.dto.CreateProductRequest;
 import com.konecta.stores_stock_service.catalog.dto.ProductPhotoResponse;
 import com.konecta.stores_stock_service.catalog.dto.ProductResponse;
+import com.konecta.stores_stock_service.catalog.dto.PublicProductSummaryResponse;
 import com.konecta.stores_stock_service.catalog.dto.StockAdjustRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateProductRequest;
 import com.konecta.stores_stock_service.catalog.model.Category;
@@ -98,6 +99,34 @@ public class ProductService {
         }
 
         return PageResponse.of(productRepository.findAll(spec, pageable).map(this::toResponse));
+    }
+
+    /**
+     * Public, unauthenticated browse of one shop's active products —
+     * deliberately minimal (id, name, primary photo only, no price/stock),
+     * matching the store→subcategory→product browsing ask. Caller is
+     * responsible for confirming the shop itself is public/active first
+     * (see {@code StoreService.getActivePublic}) — this method trusts the
+     * {@code shopId} it's given.
+     */
+    public PageResponse<PublicProductSummaryResponse> listPublicByShop(UUID shopId, UUID subcategoryId,
+            Pageable pageable) {
+        Specification<Product> spec = (root, cq, cb) -> cb.and(
+                cb.equal(root.get("storeId"), shopId),
+                root.get("status").in(ProductStatus.ACTIVE, ProductStatus.OUT_OF_STOCK));
+        if (subcategoryId != null) {
+            spec = spec.and((root, cq, cb) -> cb.equal(root.get("subcategoryId"), subcategoryId));
+        }
+        return PageResponse.of(productRepository.findAll(spec, pageable).map(this::toPublicSummary));
+    }
+
+    private PublicProductSummaryResponse toPublicSummary(Product product) {
+        String photoUrl = productImageRepository.findByProductIdOrderBySortOrderAsc(product.getId()).stream()
+                .filter(ProductImage::isPrimary)
+                .findFirst()
+                .map(img -> objectStorageService.presignDownload(img.getObjectKey()))
+                .orElse(null);
+        return new PublicProductSummaryResponse(product.getId(), product.getName(), photoUrl);
     }
 
     @Transactional
