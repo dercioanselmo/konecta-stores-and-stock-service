@@ -130,7 +130,7 @@ No auth.
 
 `PublicShop`: `id, name, logoUrl, coverUrl, isOpen, distanceKm`
 `PublicShopDetail`: `id, name, logoUrl, coverUrl, isOpen, categories: Category[]`
-`PublicProduct`: `id, name, photoUrl` — no price/stock
+`PublicProduct`: `id, name, photoUrl, price, inStock` (boolean, not raw quantity)
 
 Unknown or non-`ACTIVE` `{shopId}` → `404 SHOP_NOT_FOUND` on both single-shop endpoints.
 

@@ -509,10 +509,19 @@ caller (`PublicShopController`) calls `getActivePublic(shopId)` first so
 a non-active/unknown shop 404s before this even runs. Filter:
 `storeId == shopId AND status IN (ACTIVE, OUT_OF_STOCK)` (same
 "active" definition as `Product.isActive()`), optional `subcategoryId`
-exact-match filter. Response row: `{ id, name, photoUrl }` — no
-price/stock, deliberately (that's the future order-flow's concern, not
-this). `photoUrl` = the product's primary `ProductImage`'s presigned
-GET, `null` if no photos yet.
+exact-match filter. Response row: `{ id, name, photoUrl, price, inStock }`.
+`photoUrl` = the product's primary `ProductImage`'s presigned GET,
+`null` if no photos yet. `price` = `Product.price` verbatim. `inStock`
+(added 2026-09-05, was originally scoped out — revived once the
+customer grid needed to disable "Adicionar" pre-emptively instead of
+relying on the Cart service's `409` after the fact) = `Inventory
+.getQuantityAvailable() > 0`, computed via `InventoryService
+.getByProductId` — **deliberately a boolean, not the raw quantity** (no
+"3 left" pressure-selling). Note `ProductStatus.OUT_OF_STOCK` is never
+actually assigned anywhere in this codebase today (no code transitions
+a product to it based on `stockQuantity`), so a zero-stock product still
+shows up here with `status == ACTIVE` — `inStock: false` is the only
+signal for that case right now.
 
 ### Subcategory images
 

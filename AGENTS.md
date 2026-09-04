@@ -313,6 +313,16 @@ Never claim checks passed without running them.
 
 ---
 
+---
+# Packaging
+The code must obey the follwoing packaging structure:
+ - controller
+ - service
+ - repository
+ - dto
+ - and others that you see necessary
+---
+
 # 16. KONECTA context (read-only)
 
 KONECTA is multi-merchant, Maputo-first, mobile-first. Customers discover nearby stores and products; each cart maps to **one store**. Merchants need dashboard control of products and stock. Catalog prices include IVA; invoices discriminate tax using store fiscal data. Payments split per transaction in the Payments service — not here.

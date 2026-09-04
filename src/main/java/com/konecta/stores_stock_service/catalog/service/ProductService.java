@@ -126,7 +126,8 @@ public class ProductService {
                 .findFirst()
                 .map(img -> objectStorageService.presignDownload(img.getObjectKey()))
                 .orElse(null);
-        return new PublicProductSummaryResponse(product.getId(), product.getName(), photoUrl);
+        boolean inStock = inventoryService.getByProductId(product.getId()).getQuantityAvailable() > 0;
+        return new PublicProductSummaryResponse(product.getId(), product.getName(), photoUrl, product.getPrice(), inStock);
     }
 
     @Transactional

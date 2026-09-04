@@ -1044,10 +1044,8 @@ the object isn't in S3 yet or `key` doesn't belong to this subcategory;
 
 **Role:** none — public, no auth required.
 
-Deliberately minimal, matching the ask exactly — **no price or stock**,
-that's coming with the actual order flow, not this. Only `active` (or
-`out of stock`, same "active" definition used everywhere else in this
-API) products.
+Only `active` (or `out of stock`, same "active" definition used
+everywhere else in this API) products.
 
 **Query params**: `subcategoryId` (uuid, optional — scope to one
 subcategory of the shop), `page`, `size`.
@@ -1055,12 +1053,20 @@ subcategory of the shop), `page`, `size`.
 **Response `200 OK`** — standard `Page<T>` envelope, each row:
 
 ```json
-{ "id": "uuid", "name": "string", "photoUrl": "string | null" }
+{ "id": "uuid", "name": "string", "photoUrl": "string | null", "price": 350.0, "inStock": true }
 ```
 
 `photoUrl` is the product's primary photo (same photo `Product.photos[]`
 already tracks elsewhere in this API) — presigned GET, `null` if the
 product has no photos yet.
+
+`price` and `inStock` (**new**) — added so the browsing grid can show a
+price and disable "Adicionar" before the customer tries, rather than
+relying solely on the Cart service's `409 INSUFFICIENT_STOCK` after the
+fact. `price` is IVA-inclusive, matching `Product.price`. `inStock` is
+`stockQuantity > 0` — **deliberately not the raw quantity**, no "3 left"
+pressure-selling. (No stock/order data is otherwise exposed publicly by
+this endpoint — this is the one narrow exception, scoped to a boolean.)
 
 **Errors**: `404 SHOP_NOT_FOUND` for an unknown or non-`ACTIVE` shop —
 same rule as the shop-detail endpoint above.

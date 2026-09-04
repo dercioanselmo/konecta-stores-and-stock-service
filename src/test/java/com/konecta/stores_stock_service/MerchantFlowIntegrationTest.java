@@ -946,6 +946,17 @@ class MerchantFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String inactiveId = objectMapper.readTree(inactiveResponse).get("id").asText();
 
+        String outOfStockResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Sem Stock", "description": "n/a", "subcategoryId": "%s",
+                                  "price": 30.0, "stockQuantity": 0 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String outOfStockId = objectMapper.readTree(outOfStockResponse).get("id").asText();
+
         // public, no auth — both active products, not the inactive one
         String allResponse = mockMvc.perform(get("/api/v1/shops/" + shopId + "/products"))
                 .andExpect(status().isOk())
@@ -953,15 +964,16 @@ class MerchantFlowIntegrationTest {
         JsonNode allContent = objectMapper.readTree(allResponse).get("content");
         java.util.List<String> allIds = new java.util.ArrayList<>();
         allContent.forEach(n -> allIds.add(n.get("id").asText()));
-        org.assertj.core.api.Assertions.assertThat(allIds).contains(tomateId, detergenteId);
+        org.assertj.core.api.Assertions.assertThat(allIds).contains(tomateId, detergenteId, outOfStockId);
         org.assertj.core.api.Assertions.assertThat(allIds).doesNotContain(inactiveId);
 
-        // filtered by subcategory
+        // filtered by subcategory — also confirms price/inStock on the row
         mockMvc.perform(get("/api/v1/shops/" + shopId + "/products").param("subcategoryId", legumesSubcategoryId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].id", is(tomateId)))
-                .andExpect(jsonPath("$.content[0].name", is("Tomate")))
-                .andExpect(jsonPath("$.content.length()", is(1)));
+                .andExpect(jsonPath("$.content[?(@.id=='" + tomateId + "')].price", org.hamcrest.Matchers.contains(50.0)))
+                .andExpect(jsonPath("$.content[?(@.id=='" + tomateId + "')].inStock", org.hamcrest.Matchers.contains(true)))
+                .andExpect(jsonPath("$.content[?(@.id=='" + outOfStockId + "')].inStock", org.hamcrest.Matchers.contains(false)))
+                .andExpect(jsonPath("$.content.length()", is(2)));
     }
 
     @Test
