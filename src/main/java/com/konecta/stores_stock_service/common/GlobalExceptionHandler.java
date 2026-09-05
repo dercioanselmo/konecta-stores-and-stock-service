@@ -1,5 +1,6 @@
 package com.konecta.stores_stock_service.common;
 
+import com.konecta.stores_stock_service.inventory.service.InsufficientStockException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleAuthentication(AuthenticationException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of("UNAUTHENTICATED", "Autenticação necessária", List.of()));
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<InsufficientStockError> handleInsufficientStock(InsufficientStockException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(InsufficientStockError.of(ex.getMessage(), ex.getFailedItems()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

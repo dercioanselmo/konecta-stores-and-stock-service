@@ -57,6 +57,10 @@ class MerchantFlowIntegrationTest {
         return "Bearer " + TestJwtUtil.staffToken(userId, shopId);
     }
 
+    private String customerToken(String userId) {
+        return "Bearer " + TestJwtUtil.token(userId, "CUSTOMER");
+    }
+
     @BeforeEach
     void loadSeededTaxonomy() throws Exception {
         String categories = mockMvc.perform(get("/api/v1/meta/categories"))
@@ -1098,5 +1102,171 @@ class MerchantFlowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"contentType\": \"image/jpeg\" }"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void stockCommit_decrementsAllLinesAtomicallyAndIsIdempotent() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Stock Commit", "nuit": "555444333", "address": "Rua SC",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String productAResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto A", "description": "d", "subcategoryId": "%s",
+                                  "price": 10.0, "stockQuantity": 10 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String productAId = objectMapper.readTree(productAResponse).get("id").asText();
+
+        String productBResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto B", "description": "d", "subcategoryId": "%s",
+                                  "price": 20.0, "stockQuantity": 5 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String productBId = objectMapper.readTree(productBResponse).get("id").asText();
+
+        String customerAuth = customerToken("cust-" + System.nanoTime());
+        String orderId = java.util.UUID.randomUUID().toString();
+
+        String commitBody = """
+                { "orderId": "%s", "items": [
+                    { "productId": "%s", "quantity": 3 },
+                    { "productId": "%s", "quantity": 2 }
+                ] }
+                """.formatted(orderId, productAId, productBId);
+
+        // any authenticated role (CUSTOMER here), not merchant-scoped
+        mockMvc.perform(post("/api/v1/shops/" + shopId + "/stock/commit")
+                        .header("Authorization", customerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commitBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderId", is(orderId)))
+                .andExpect(jsonPath("$.items[?(@.productId=='" + productAId + "')].stockQuantity",
+                        org.hamcrest.Matchers.contains(7)))
+                .andExpect(jsonPath("$.items[?(@.productId=='" + productBId + "')].stockQuantity",
+                        org.hamcrest.Matchers.contains(3)));
+
+        // idempotent retry with the same orderId -> same result, no double-decrement
+        mockMvc.perform(post("/api/v1/shops/" + shopId + "/stock/commit")
+                        .header("Authorization", customerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commitBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.productId=='" + productAId + "')].stockQuantity",
+                        org.hamcrest.Matchers.contains(7)));
+
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products/" + productAId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stockQuantity", is(7)));
+
+        // no token at all
+        mockMvc.perform(post("/api/v1/shops/" + shopId + "/stock/commit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commitBody))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code", is("UNAUTHENTICATED")));
+    }
+
+    @Test
+    void stockCommit_insufficientStockFailsAllOrNothingAndReportsFailedItems() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Stock Commit 2", "nuit": "555444444", "address": "Rua SC2",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String plentyResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto Fartura", "description": "d", "subcategoryId": "%s",
+                                  "price": 10.0, "stockQuantity": 10 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String plentyId = objectMapper.readTree(plentyResponse).get("id").asText();
+
+        String scarceResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto Escasso", "description": "d", "subcategoryId": "%s",
+                                  "price": 20.0, "stockQuantity": 1 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String scarceId = objectMapper.readTree(scarceResponse).get("id").asText();
+
+        String customerAuth = customerToken("cust-" + System.nanoTime());
+        String orderId = java.util.UUID.randomUUID().toString();
+
+        // requests 3 of the scarce product (only 1 available) alongside a well-stocked line
+        String commitBody = """
+                { "orderId": "%s", "items": [
+                    { "productId": "%s", "quantity": 2 },
+                    { "productId": "%s", "quantity": 3 }
+                ] }
+                """.formatted(orderId, plentyId, scarceId);
+
+        mockMvc.perform(post("/api/v1/shops/" + shopId + "/stock/commit")
+                        .header("Authorization", customerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(commitBody))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code", is("INSUFFICIENT_STOCK")))
+                .andExpect(jsonPath("$.failedItems[0].productId", is(scarceId)))
+                .andExpect(jsonPath("$.failedItems[0].requested", is(3)))
+                .andExpect(jsonPath("$.failedItems[0].available", is(1)));
+
+        // all-or-nothing: the well-stocked line must NOT have been decremented either
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products/" + plentyId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stockQuantity", is(10)));
+
+        // unknown shop
+        mockMvc.perform(post("/api/v1/shops/00000000-0000-0000-0000-000000000000/stock/commit")
+                        .header("Authorization", customerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "orderId": "%s", "items": [ { "productId": "%s", "quantity": 1 } ] }
+                                """.formatted(java.util.UUID.randomUUID(), plentyId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("SHOP_NOT_FOUND")));
+
+        // product that doesn't belong to this shop
+        mockMvc.perform(post("/api/v1/shops/" + shopId + "/stock/commit")
+                        .header("Authorization", customerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "orderId": "%s", "items": [ { "productId": "00000000-0000-0000-0000-000000000000", "quantity": 1 } ] }
+                                """.formatted(java.util.UUID.randomUUID())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
     }
 }

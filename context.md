@@ -570,6 +570,89 @@ Regression-tested in
 `#subcategoryImage_presignConfirmAndPublicRead` — not yet live-verified
 with real data (same open item as §6).
 
+## 8. Stock commit (for KONECTA-CHECKOUT-SERVICE)
+
+Closes AGENTS.md's checkout rule CHK-13 ("prefer calling Stock to
+reserve/commit on place order; if not yet available, document the gap and
+do not silently oversell") — the concrete gap KONECTA-CHECKOUT-SERVICE
+flagged: it could only *read* `inStock` and had no endpoint to actually
+decrement stock, so two customers could both pass the read-time check for
+the last unit.
+
+### `POST /api/v1/shops/{shopId}/stock/commit`
+
+**Role: any authenticated user, not merchant-scoped.** The caller is
+Checkout, running with the customer's own JWT — a `Customer` (or whatever
+role places orders) has none of `MERCHANT`/`MERCHANT_STAFF`/`ADMIN` and no
+legitimate way to acquire them. This is the **one path under
+`/api/v1/shops/**`** that isn't part of the public browsing surface, so it
+needed its own `authenticated()` matcher in `SecurityConfig`, declared
+**before** the broad `/api/v1/shops/**` `permitAll` rule (Spring Security's
+`authorizeHttpRequests` matches in declaration order — a broader `permitAll`
+declared first would have shadowed a more specific rule declared after it):
+
+```java
+.requestMatchers(HttpMethod.POST, "/api/v1/shops/*/stock/commit").authenticated()
+.requestMatchers(..., "/api/v1/shops", "/api/v1/shops/**", ...).permitAll()
+```
+
+Body: `{ orderId: uuid, items: [{ productId: uuid, quantity: int (≥1) }] }`.
+`StockCommitController` → `StockCommitService.commit(shopId, request,
+actorUserId)`.
+
+**All-or-nothing**: every line's `quantity` is checked against current
+`Inventory.quantityAvailable` *before* any line is decremented — if any
+line fails, `InsufficientStockException` is thrown and nothing is written
+(the whole method is `@Transactional`, so even the checked-and-passed
+lines see no partial commit on the DB side either). This was Checkout's
+explicit ask: a partial failure would leave an already-persisted order
+over-promised on some lines, which is worse than a clean all-or-nothing
+`409` Checkout can react to.
+
+**Idempotent on `orderId`**: rather than a new table, this reuses
+`stock_movements.ref_type`/`ref_id` (already existed, unused until now) —
+every line of one commit writes a `StockMovement` with
+`reason=SALE_COMMIT, refType="ORDER", refId=<orderId>` in the same
+transaction, so `stockMovementRepository.existsByRefTypeAndRefId("ORDER",
+orderId)` proves a prior successful commit. A retried call with that
+`orderId` short-circuits to `buildResponse` (current stock levels for the
+requested items, no re-validation, no new movements) instead of
+re-running the commit. Added `idx_stock_movements_ref_type_ref_id` in
+`V9__stock_commit_idempotency_index.sql` for that lookup.
+
+**Response `200 OK`**: `{ orderId, items: [{ productId, stockQuantity }] }`
+— the resulting stock level per line, in case it's useful to the caller
+(not required by the ask, but cheap to include).
+
+**Errors**: `401 UNAUTHENTICATED` (no token); `404 SHOP_NOT_FOUND`
+(unknown/non-`ACTIVE` shop); `404 PRODUCT_NOT_FOUND` (unknown product, or
+one that doesn't belong to `shopId`); `409 INSUFFICIENT_STOCK` with a
+**structured** body —
+
+```json
+{ "code": "INSUFFICIENT_STOCK", "message": "...", "failedItems": [{ "productId", "requested", "available" }], "timestamp" }
+```
+
+— deliberately **not** the shared `ApiError`/`ApiException` shape (flat
+`details: string[]` can't carry per-line structured data). New
+`InsufficientStockException` (in `inventory.service`, carries
+`List<FailedItem>`) + a dedicated `@ExceptionHandler` in
+`GlobalExceptionHandler` + a standalone `InsufficientStockError` response
+record — mirrors the "extended error shape for one specific error" pattern
+Checkout's own ask referenced from Cart's `StoreMismatchError`, rather than
+widening the shared envelope for everyone.
+
+Regression-tested in
+`MerchantFlowIntegrationTest#stockCommit_decrementsAllLinesAtomicallyAndIsIdempotent`
+and `#stockCommit_insufficientStockFailsAllOrNothingAndReportsFailedItems`
+— not yet live-verified against a real KONECTA-CHECKOUT-SERVICE call.
+
+**Explicitly not built** (per the ask's own scope): a separate
+reserve-then-commit two-step. This phase's payment is an automatic stub
+(no real PSP), so there's no "pending payment" window to reserve stock
+across — reads straight to commit. Revisit if/when a real payment gateway
+introduces that window.
+
 ## Data models
 
 ### `Shop`

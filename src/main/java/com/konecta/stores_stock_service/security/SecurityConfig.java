@@ -37,6 +37,12 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // More specific than the /api/v1/shops/** permitAll below, and must
+                        // come first -- authorizeHttpRequests matches in declaration order.
+                        // Stock commit runs with the customer's own JWT (any role), it is
+                        // deliberately not part of the public browsing surface.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/shops/*/stock/commit")
+                        .authenticated()
                         .requestMatchers("/actuator/health/**", "/api/v1/meta/**", "/api/v1/shops", "/api/v1/shops/**",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())

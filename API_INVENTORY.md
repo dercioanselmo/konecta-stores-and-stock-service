@@ -139,6 +139,34 @@ Unknown/wrong-shop/inactive-shop `{productId}` → `404 PRODUCT_NOT_FOUND` on th
 
 ---
 
+## Stock commit — `/api/v1/shops/{shopId}/stock/commit`
+
+For KONECTA-CHECKOUT-SERVICE. Role: **any authenticated user** (not merchant-scoped — the
+caller is the customer placing the order). This is the one path under `/api/v1/shops/**` that
+is *not* public; `SecurityConfig` carves it out ahead of that prefix's `permitAll` rule.
+
+| Method & path | Body | Returns |
+|---|---|---|
+| `POST /` | `{ orderId: uuid, items: [{ productId: uuid, quantity: int (≥1) }] }` | `200 { orderId, items: [{ productId, stockQuantity }] }` |
+
+Atomically decrements `stockQuantity` for every line. **All-or-nothing**: if any line's
+`quantity` exceeds current stock, no line is decremented. **Idempotent on `orderId`**: a retried
+call with an `orderId` already committed returns the same success response (current stock
+levels) without decrementing again — proven by checking for an existing `stock_movements` row
+with `ref_type='ORDER', ref_id=<orderId>` (all lines of one commit are written in a single
+transaction, so any row implies the whole commit already succeeded).
+
+**Errors**:
+
+| Status | Code | When |
+|---|---|---|
+| `401` | `UNAUTHENTICATED` | No token |
+| `404` | `SHOP_NOT_FOUND` | Unknown or non-`ACTIVE` `{shopId}` |
+| `404` | `PRODUCT_NOT_FOUND` | A `productId` doesn't exist or doesn't belong to `{shopId}` |
+| `409` | `INSUFFICIENT_STOCK` | Any line exceeds current stock. Body: `{ code, message, failedItems: [{ productId, requested, available }], timestamp }` — note this is a **different envelope shape** than every other error in this API (no `details: string[]`), since a flat string list can't carry structured per-line data. |
+
+---
+
 ## User profile photo — `/api/v1/users/me/photo`
 
 Role: any authenticated user (not merchant-specific). **This service does not persist the result** — no user table here; caller must separately save the URL via KONECTA-SECURITY-SERVICE.
