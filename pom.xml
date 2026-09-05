@@ -138,6 +138,22 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			<!--
+				com.netflix.eureka:eureka-client (pulled in transitively by the
+				Eureka client starter) declares httpclient:4.5.3, which is the
+				only copy of this library on the classpath, so the AWS SDK's
+				Apache HTTP transport (used for real S3 calls) ends up running
+				on it too. 4.5.3 predates the 4.5.9 fix for
+				https://github.com/aws/aws-sdk-java/issues/1919 (a stale
+				normalizeUri behavior that can affect SigV4 signing for keys
+				with unusual characters, and adds latency to exception
+				handling). Pin to a current 4.5.x release instead.
+			-->
+			<dependency>
+				<groupId>org.apache.httpcomponents</groupId>
+				<artifactId>httpclient</artifactId>
+				<version>4.5.14</version>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 
