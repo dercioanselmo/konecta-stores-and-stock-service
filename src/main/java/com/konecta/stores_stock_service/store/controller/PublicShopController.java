@@ -1,5 +1,6 @@
 package com.konecta.stores_stock_service.store.controller;
 
+import com.konecta.stores_stock_service.catalog.dto.PublicProductDetailResponse;
 import com.konecta.stores_stock_service.catalog.dto.PublicProductSummaryResponse;
 import com.konecta.stores_stock_service.catalog.service.ProductService;
 import com.konecta.stores_stock_service.common.ApiException;
@@ -66,5 +67,10 @@ public class PublicShopController {
             @RequestParam(required = false) UUID subcategoryId, Pageable pageable) {
         storeService.getActivePublic(shopId);
         return productService.listPublicByShop(shopId, subcategoryId, pageable);
+    }
+
+    @GetMapping("/{shopId}/products/{productId}")
+    public PublicProductDetailResponse product(@PathVariable UUID shopId, @PathVariable UUID productId) {
+        return productService.getPublicDetail(shopId, productId);
     }
 }

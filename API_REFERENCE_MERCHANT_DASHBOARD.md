@@ -1071,9 +1071,49 @@ this endpoint — this is the one narrow exception, scoped to a boolean.)
 **Errors**: `404 SHOP_NOT_FOUND` for an unknown or non-`ACTIVE` shop —
 same rule as the shop-detail endpoint above.
 
+### `GET /api/v1/shops/{shopId}/products/{productId}` — public single-product detail
+
+**Role:** none — public, no auth required.
+
+**New.** For the product detail page: big photo, name,
+category/subcategory, price, description, and whether it can be added
+to cart.
+
+**Response `200 OK`**
+
+```json
+{
+  "id": "uuid",
+  "shopId": "uuid",
+  "name": "string",
+  "description": "string",
+  "photoUrl": "string | null",
+  "price": 350.0,
+  "inStock": true,
+  "categoryName": "string | null",
+  "subcategoryId": "uuid | null",
+  "subcategoryName": "string | null"
+}
+```
+
+`inStock` — same boolean-only convention as the list endpoint above, no
+raw quantity. `subcategoryId` is included so a "← Produtos" back link
+can return to the exact subcategory grid the customer came from, not
+just the shop page. `categoryName`/`subcategoryName` are denormalized
+directly onto the row (same pattern as the merchant-side `Product`
+model) so this page needs only the one call.
+
+**Errors**: `404 PRODUCT_NOT_FOUND` — for an unknown `productId`, one
+belonging to a different shop, **or** a product whose shop isn't
+`ACTIVE`. All three collapse into the same code/message deliberately
+(this endpoint doesn't surface `SHOP_NOT_FOUND` at all — unlike the two
+endpoints above it, an invalid `shopId` here just looks like an unknown
+product).
+
 **Status**: covered by new integration tests
 (`publicShopDetail_returnsCategoriesAndHidesNonActiveShops`,
 `publicShopProducts_onlyActiveAndFilterableBySubcategory`,
+`publicProductDetail_returnsFullInfoAndHidesInactiveOrWrongShop`,
 `subcategoryImage_presignConfirmAndPublicRead`) against the real
 Postgres-backed test stack. **Not yet live-verified with real data** —
 same open item as the proximity-browsing endpoint above.

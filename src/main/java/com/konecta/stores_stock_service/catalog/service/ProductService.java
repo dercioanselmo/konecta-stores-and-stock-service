@@ -3,6 +3,7 @@ package com.konecta.stores_stock_service.catalog.service;
 import com.konecta.stores_stock_service.catalog.dto.CreateProductRequest;
 import com.konecta.stores_stock_service.catalog.dto.ProductPhotoResponse;
 import com.konecta.stores_stock_service.catalog.dto.ProductResponse;
+import com.konecta.stores_stock_service.catalog.dto.PublicProductDetailResponse;
 import com.konecta.stores_stock_service.catalog.dto.PublicProductSummaryResponse;
 import com.konecta.stores_stock_service.catalog.dto.StockAdjustRequest;
 import com.konecta.stores_stock_service.catalog.dto.UpdateProductRequest;
@@ -25,6 +26,8 @@ import com.konecta.stores_stock_service.common.storage.dto.PresignUploadRequest;
 import com.konecta.stores_stock_service.common.storage.dto.PresignUploadResponse;
 import com.konecta.stores_stock_service.inventory.model.Inventory;
 import com.konecta.stores_stock_service.inventory.service.InventoryService;
+import com.konecta.stores_stock_service.store.model.StoreStatus;
+import com.konecta.stores_stock_service.store.repository.StoreRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -48,10 +51,12 @@ public class ProductService {
     private final CategoryRepository categoryRepository;
     private final ObjectStorageService objectStorageService;
     private final S3KeyFactory s3KeyFactory;
+    private final StoreRepository storeRepository;
 
     public ProductService(ProductRepository productRepository, ProductImageRepository productImageRepository,
             InventoryService inventoryService, SubcategoryRepository subcategoryRepository,
-            CategoryRepository categoryRepository, ObjectStorageService objectStorageService, S3KeyFactory s3KeyFactory) {
+            CategoryRepository categoryRepository, ObjectStorageService objectStorageService, S3KeyFactory s3KeyFactory,
+            StoreRepository storeRepository) {
         this.productRepository = productRepository;
         this.productImageRepository = productImageRepository;
         this.inventoryService = inventoryService;
@@ -59,6 +64,7 @@ public class ProductService {
         this.categoryRepository = categoryRepository;
         this.objectStorageService = objectStorageService;
         this.s3KeyFactory = s3KeyFactory;
+        this.storeRepository = storeRepository;
     }
 
     public PageResponse<ProductResponse> list(UUID shopId, String query, UUID categoryId, UUID subcategoryId,
@@ -128,6 +134,59 @@ public class ProductService {
                 .orElse(null);
         boolean inStock = inventoryService.getByProductId(product.getId()).getQuantityAvailable() > 0;
         return new PublicProductSummaryResponse(product.getId(), product.getName(), photoUrl, product.getPrice(), inStock);
+    }
+
+    /**
+     * Public, unauthenticated single-product detail page. Unknown product,
+     * a product belonging to a different shop, and a product whose shop
+     * isn't {@code ACTIVE} all collapse into the same
+     * {@code PRODUCT_NOT_FOUND} — the ask was explicit that all three
+     * should look identical from the outside, so this doesn't delegate to
+     * {@code StoreService.getActivePublic} (which throws
+     * {@code SHOP_NOT_FOUND} instead).
+     */
+    public PublicProductDetailResponse getPublicDetail(UUID shopId, UUID productId) {
+        Product product = productRepository.findByIdAndStoreId(productId, shopId)
+                .filter(Product::isActive)
+                .orElseThrow(() -> ApiException.notFound("PRODUCT_NOT_FOUND", "Produto não encontrado"));
+
+        boolean shopActive = storeRepository.findById(shopId)
+                .map(store -> store.getStatus() == StoreStatus.ACTIVE)
+                .orElse(false);
+        if (!shopActive) {
+            throw ApiException.notFound("PRODUCT_NOT_FOUND", "Produto não encontrado");
+        }
+
+        String categoryName = null;
+        String subcategoryName = null;
+        if (product.getSubcategoryId() != null) {
+            Optional<Subcategory> subcategory = subcategoryRepository.findById(product.getSubcategoryId());
+            if (subcategory.isPresent()) {
+                subcategoryName = subcategory.get().getName();
+                categoryName = categoryRepository.findById(subcategory.get().getCategoryId())
+                        .map(Category::getName)
+                        .orElse(null);
+            }
+        }
+
+        String photoUrl = productImageRepository.findByProductIdOrderBySortOrderAsc(product.getId()).stream()
+                .filter(ProductImage::isPrimary)
+                .findFirst()
+                .map(img -> objectStorageService.presignDownload(img.getObjectKey()))
+                .orElse(null);
+        boolean inStock = inventoryService.getByProductId(product.getId()).getQuantityAvailable() > 0;
+
+        return new PublicProductDetailResponse(
+                product.getId(),
+                product.getStoreId(),
+                product.getName(),
+                product.getDescription(),
+                photoUrl,
+                product.getPrice(),
+                inStock,
+                categoryName,
+                product.getSubcategoryId(),
+                subcategoryName);
     }
 
     @Transactional

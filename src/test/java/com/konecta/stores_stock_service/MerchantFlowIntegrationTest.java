@@ -977,6 +977,91 @@ class MerchantFlowIntegrationTest {
     }
 
     @Test
+    void publicProductDetail_returnsFullInfoAndHidesInactiveOrWrongShop() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Detalhe Produto", "nuit": "111333222", "address": "Rua DP",
+                                  "city": "Maputo", "neighborhood": "Central", "categoryIds": ["%s"] }
+                                """.formatted(supermercadoCategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        String productResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Tomate", "description": "fresco e maduro", "subcategoryId": "%s",
+                                  "price": 50.0, "stockQuantity": 10 }
+                                """.formatted(legumesSubcategoryId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String productId = objectMapper.readTree(productResponse).get("id").asText();
+
+        // public, no Authorization header at all
+        mockMvc.perform(get("/api/v1/shops/" + shopId + "/products/" + productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(productId)))
+                .andExpect(jsonPath("$.shopId", is(shopId)))
+                .andExpect(jsonPath("$.name", is("Tomate")))
+                .andExpect(jsonPath("$.description", is("fresco e maduro")))
+                .andExpect(jsonPath("$.price", is(50.0)))
+                .andExpect(jsonPath("$.inStock", is(true)))
+                .andExpect(jsonPath("$.subcategoryId", is(legumesSubcategoryId)))
+                .andExpect(jsonPath("$.subcategoryName", is("Legumes e Frutas")))
+                .andExpect(jsonPath("$.categoryName", is("Supermercado")));
+
+        // deactivated product is no longer publicly visible
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/products/" + productId + "/active")
+                        .header("Authorization", auth)
+                        .param("active", "false"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/shops/" + shopId + "/products/" + productId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
+
+        // unknown product id on a real shop
+        mockMvc.perform(get("/api/v1/shops/" + shopId + "/products/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
+
+        // a product whose shop isn't ACTIVE also 404s as PRODUCT_NOT_FOUND (not SHOP_NOT_FOUND)
+        String draftShopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja Rascunho Produto", "address": "Rua R", "city": "Maputo" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status", is("DRAFT")))
+                .andReturn().getResponse().getContentAsString();
+        String draftShopId = objectMapper.readTree(draftShopResponse).get("id").asText();
+
+        String draftProductResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + draftShopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Batata", "description": "desc", "price": 20.0, "stockQuantity": 5 }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String draftProductId = objectMapper.readTree(draftProductResponse).get("id").asText();
+
+        mockMvc.perform(get("/api/v1/shops/" + draftShopId + "/products/" + draftProductId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
+
+        // a product that belongs to a different (active) shop than the one in the URL
+        mockMvc.perform(get("/api/v1/shops/" + draftShopId + "/products/" + productId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
+    }
+
+    @Test
     void subcategoryImage_presignConfirmAndPublicRead() throws Exception {
         String admin = adminToken("admin-" + System.nanoTime());
 

@@ -127,12 +127,15 @@ No auth.
 | `GET /?categoryId*&lat*&lng*&page&size` | `Page<PublicShop>` — active shops with `categoryId`, nearest-first (Haversine); unlocated shops excluded |
 | `GET /{shopId}` | `PublicShopDetail` |
 | `GET /{shopId}/products?subcategoryId&page&size` | `Page<PublicProduct>` — active products only |
+| `GET /{shopId}/products/{productId}` | `PublicProductDetail` |
 
 `PublicShop`: `id, name, logoUrl, coverUrl, isOpen, distanceKm`
 `PublicShopDetail`: `id, name, logoUrl, coverUrl, isOpen, categories: Category[]`
 `PublicProduct`: `id, name, photoUrl, price, inStock` (boolean, not raw quantity)
+`PublicProductDetail`: `id, shopId, name, description, photoUrl, price, inStock, categoryName, subcategoryId, subcategoryName`
 
-Unknown or non-`ACTIVE` `{shopId}` → `404 SHOP_NOT_FOUND` on both single-shop endpoints.
+Unknown or non-`ACTIVE` `{shopId}` → `404 SHOP_NOT_FOUND` on the shop-detail and shop-products endpoints.
+Unknown/wrong-shop/inactive-shop `{productId}` → `404 PRODUCT_NOT_FOUND` on the product-detail endpoint (never `SHOP_NOT_FOUND` there).
 
 ---
 

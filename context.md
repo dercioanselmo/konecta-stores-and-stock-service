@@ -523,6 +523,38 @@ a product to it based on `stockQuantity`), so a zero-stock product still
 shows up here with `status == ACTIVE` — `inStock: false` is the only
 signal for that case right now.
 
+### `GET /api/v1/shops/{shopId}/products/{productId}` — public single-product detail
+
+`ProductService.getPublicDetail(shopId, productId)` — deliberately
+**does not** delegate to `StoreService.getActivePublic` (unlike the
+list endpoint above): unknown product, wrong shop, and inactive-shop
+product all need to collapse into the same `404 PRODUCT_NOT_FOUND`,
+whereas `getActivePublic` would throw `SHOP_NOT_FOUND` for the last
+case. So the shop's `ACTIVE` status is checked inline here
+(`storeRepository.findById(shopId).map(store -> store.getStatus() ==
+StoreStatus.ACTIVE)`), after the product lookup
+(`productRepository.findByIdAndStoreId(productId, shopId).filter(Product::isActive)`) —
+both paths throw the identical `PRODUCT_NOT_FOUND`. `ProductService` now
+depends on `StoreRepository` for this one check (a small cross-domain
+dependency, catalog → store, that didn't exist before).
+
+Response: `{ id, shopId, name, description, photoUrl, price, inStock,
+categoryName, subcategoryId, subcategoryName }` — note this shape drops
+`categoryId` (kept only `categoryName`) compared to the merchant-side
+`Product` model, and adds `shopId` (not on the list row above) so the
+page doesn't need it threaded through separately. `subcategoryId` is
+kept so the frontend's back-link can return to the exact subcategory
+grid, not just the shop page. Category/subcategory name resolution is
+the same `subcategoryRepository`/`categoryRepository` two-step already
+used in `toResponse` — not extracted into a shared helper this round
+(kept local to this method) to keep the diff scoped to just this ask.
+
+Regression-tested in
+`MerchantFlowIntegrationTest#publicProductDetail_returnsFullInfoAndHidesInactiveOrWrongShop`
+(happy path with category/subcategory names, deactivated product,
+unknown product id, and a product on a `DRAFT` shop — all four
+non-happy cases assert `PRODUCT_NOT_FOUND`, never `SHOP_NOT_FOUND`).
+
 ### Subcategory images
 
 Same gap as category images, filled the same way — see §2's admin
