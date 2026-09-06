@@ -1001,6 +1001,8 @@ customer browsing surface.
   "logoUrl": null,
   "coverUrl": null,
   "isOpen": false,
+  "latitude": -25.9692,
+  "longitude": 32.5732,
   "categories": [
     { "id": "12a1aaae-42d6-413d-8a86-ab951482fb93", "code": "SUPERMERCADO", "name": "Supermercado", "sortOrder": 1, "active": true, "imageUrl": null }
   ]
@@ -1011,6 +1013,13 @@ customer browsing surface.
 next — reuse the existing public
 `GET /api/v1/meta/categories/{categoryId}/subcategories` for each one,
 no new endpoint needed for that step (as the ask itself already noted).
+
+`latitude`/`longitude` (**new**) — same nullable fields the merchant-facing
+`Shop` model already has, `null` until the merchant sets a location.
+Added for KONECTA-CHECKOUT-SERVICE, which snapshots them onto every order
+it creates (for KONECTA-ORDERS-SERVICE's order-tracking map) — it only
+ever holds a customer JWT, so this public endpoint is the only one it can
+call.
 
 **Errors**: `404 SHOP_NOT_FOUND` — for an unknown `shopId`, **and** for a
 real but non-`ACTIVE` shop (`DRAFT`/`PENDING_REVIEW`/`SUSPENDED`/`CLOSED`).

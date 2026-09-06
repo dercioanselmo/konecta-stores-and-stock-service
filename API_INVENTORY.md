@@ -130,7 +130,7 @@ No auth.
 | `GET /{shopId}/products/{productId}` | `PublicProductDetail` |
 
 `PublicShop`: `id, name, logoUrl, coverUrl, isOpen, distanceKm`
-`PublicShopDetail`: `id, name, logoUrl, coverUrl, isOpen, categories: Category[]`
+`PublicShopDetail`: `id, name, logoUrl, coverUrl, isOpen, latitude, longitude, categories: Category[]` (`latitude`/`longitude` nullable — `null` until the merchant sets a location)
 `PublicProduct`: `id, name, photoUrl, price, inStock` (boolean, not raw quantity)
 `PublicProductDetail`: `id, shopId, name, description, photoUrl, price, inStock, categoryName, subcategoryId, subcategoryName`
 

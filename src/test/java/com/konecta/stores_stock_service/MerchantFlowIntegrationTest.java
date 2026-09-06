@@ -867,11 +867,26 @@ class MerchantFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String shopId = objectMapper.readTree(shopResponse).get("id").asText();
 
-        // public, no Authorization header at all
+        // public, no Authorization header at all -- no location set yet
         mockMvc.perform(get("/api/v1/shops/" + shopId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is(shopId)))
-                .andExpect(jsonPath("$.categories[0].code", is("SUPERMERCADO")));
+                .andExpect(jsonPath("$.categories[0].code", is("SUPERMERCADO")))
+                .andExpect(jsonPath("$.latitude").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.longitude").value(org.hamcrest.Matchers.nullValue()));
+
+        // merchant sets a location -> now surfaced on the public row too (for Checkout's
+        // order-map snapshot, which reads this same public endpoint)
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/location")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"latitude\": -25.9692, \"longitude\": 32.5732 }"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/shops/" + shopId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude", is(-25.9692)))
+                .andExpect(jsonPath("$.longitude", is(32.5732)));
 
         // a DRAFT shop (missing nuit) is not publicly visible
         String draftResponse = mockMvc.perform(post("/api/v1/merchant/shops")

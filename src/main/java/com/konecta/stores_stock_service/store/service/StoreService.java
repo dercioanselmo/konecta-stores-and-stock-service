@@ -186,6 +186,8 @@ public class StoreService {
                 presignedUrlOrNull(store.getLogoKey()),
                 presignedUrlOrNull(store.getCoverKey()),
                 isOpen(store),
+                store.getLatitude(),
+                store.getLongitude(),
                 categoriesOf(store.getId()));
     }
 

@@ -10,5 +10,7 @@ public record PublicShopDetailResponse(
         String logoUrl,
         String coverUrl,
         boolean isOpen,
+        Double latitude,
+        Double longitude,
         List<CategoryResponse> categories) {
 }

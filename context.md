@@ -498,9 +498,22 @@ All under `PublicShopController` (`/api/v1/shops/**`, `permitAll`).
 **requires `status == ACTIVE`**, else `404 SHOP_NOT_FOUND` — same
 non-owner-confirmation-avoidance pattern as the authenticated endpoints,
 just applied to "is this shop even publicly visible" instead of
-ownership. Response: `{ id, name, logoUrl, coverUrl, isOpen, categories: Category[] }`
-— `categories` reuses `categoriesOf`, same helper the authenticated
-`Shop` model uses.
+ownership. Response: `{ id, name, logoUrl, coverUrl, isOpen, latitude,
+longitude, categories: Category[] }` — `categories` reuses
+`categoriesOf`, same helper the authenticated `Shop` model uses.
+
+`latitude`/`longitude` (added 2026-09-07, for KONECTA-CHECKOUT-SERVICE):
+Checkout only ever holds a customer JWT, so it snapshots
+`order.storeLatitude`/`storeLongitude` for KONECTA-ORDERS-SERVICE's order-
+tracking map by reading this same public endpoint — it has no access to
+the merchant-scoped `GET /merchant/shops/{shopId}` that already returned
+these fields. Straight passthrough of `Store.latitude`/`longitude`
+(nullable — `null` until the merchant sets a location via `PATCH
+/merchant/shops/{shopId}/location`); no new nullability rule introduced.
+Regression-tested in
+`MerchantFlowIntegrationTest#publicShopDetail_returnsCategoriesAndHidesNonActiveShops`
+(asserts `null` before a location is set, then the real values after
+`PATCH .../location`).
 
 ### `GET /api/v1/shops/{shopId}/products` — public products-in-a-shop list
 
