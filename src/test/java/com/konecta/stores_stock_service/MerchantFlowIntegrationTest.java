@@ -818,6 +818,39 @@ class MerchantFlowIntegrationTest {
                 .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
     }
 
+    @Test
+    void publicShopsList_categoryIdIsOptionalForCityWideBrowse() throws Exception {
+        String owner = "owner-" + System.nanoTime();
+        String auth = merchantToken(owner);
+
+        String categoriesResponse = mockMvc.perform(get("/api/v1/meta/categories"))
+                .andReturn().getResponse().getContentAsString();
+        var categories = objectMapper.readTree(categoriesResponse);
+        String categoryId = categories.get(0).get("id").asText();
+        String otherCategoryId = categories.get(1).get("id").asText();
+
+        String shopInCategoryId = createLocatedShop(auth, "Loja Categoria A", categoryId, "999000221", -25.9700, 32.5750);
+        String shopInOtherCategoryId = createLocatedShop(auth, "Loja Categoria B", otherCategoryId, "999000222",
+                -25.9690, 32.5730);
+
+        // categoryId omitted, lat/lng still required -> every active, located shop city-wide
+        String response = mockMvc.perform(get("/api/v1/shops")
+                        .param("lat", "-25.9692")
+                        .param("lng", "32.5732"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        var content = objectMapper.readTree(response).get("content");
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        content.forEach(n -> ids.add(n.get("id").asText()));
+        org.assertj.core.api.Assertions.assertThat(ids).contains(shopInCategoryId, shopInOtherCategoryId);
+
+        // lat/lng still required even without categoryId
+        mockMvc.perform(get("/api/v1/shops"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+    }
+
     private String createLocatedShop(String auth, String name, String categoryId, String nuit, double lat, double lng)
             throws Exception {
         String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")

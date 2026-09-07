@@ -19,9 +19,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Public, unauthenticated proximity shop browse for the anonymous
- * customer flow: category tile -> gate -> shop grid, nearest-first. See
- * API_REFERENCE_MERCHANT_DASHBOARD.md's "Proximity shop browsing" section.
+ * Public, unauthenticated proximity shop browse. Started as the anonymous
+ * customer flow (category tile -> gate -> shop grid, nearest-first) --
+ * {@code categoryId} is now optional so the courier store-picker can
+ * browse every active shop city-wide instead of one category at a time.
+ * See API_REFERENCE_MERCHANT_DASHBOARD.md's "Proximity shop browsing"
+ * section.
  */
 @RestController
 @RequestMapping("/api/v1/shops")
@@ -42,9 +45,6 @@ public class PublicShopController {
             @RequestParam(required = false) Double lng,
             Pageable pageable) {
         List<String> errors = new ArrayList<>();
-        if (categoryId == null) {
-            errors.add("categoryId: obrigatório");
-        }
         if (lat == null) {
             errors.add("lat: obrigatório");
         }

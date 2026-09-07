@@ -475,20 +475,32 @@ matcher list in `SecurityConfig` alongside `/api/v1/meta/**`)
 For the anonymous customer flow: category tile → gate → shop grid,
 nearest-first. `PublicShopController` / `StoreService.listPublicByCategory`.
 
-Query: `categoryId*` (uuid), `lat*` (decimal), `lng*` (decimal) — all
-three required, `400 VALIDATION_ERROR` (not Spring's default missing-param
-500) if any is absent, since `@RequestParam` is declared `required = false`
-and checked manually — there's no `@ExceptionHandler` for
-`MissingServletRequestParameterException` in `GlobalExceptionHandler`, so
-a `required = true` param would have 500'd instead of giving a clean
-`VALIDATION_ERROR`. `page`, `size` as usual.
+Query: `categoryId` (uuid, **optional since 2026-09-07** — was required;
+loosened for the courier store-picker, which browses every active shop
+city-wide instead of one category at a time), `lat*` (decimal), `lng*`
+(decimal) — `lat`/`lng` still required, `400 VALIDATION_ERROR` (not
+Spring's default missing-param 500) if either is absent, since
+`@RequestParam` is declared `required = false` and checked manually —
+there's no `@ExceptionHandler` for `MissingServletRequestParameterException`
+in `GlobalExceptionHandler`, so a `required = true` param would have
+500'd instead of giving a clean `VALIDATION_ERROR`. `page`, `size` as
+usual.
 
-Filter: `status = ACTIVE`, has `categoryId` in `store_categories` (same
-subquery pattern as `listForAdmin`'s `categoryId` filter), `latitude`/
-`longitude` both non-null. **Shops with no location are excluded, not
-appended unsorted** — an explicit decision (the ask left it open),
-because they can't be meaningfully ranked and it nudges merchants to
-finish shop setup.
+Filter: `status = ACTIVE`; has `categoryId` in `store_categories` (same
+subquery pattern as `listForAdmin`'s `categoryId` filter) **only when
+`categoryId` is given** — `StoreService.listPublicByCategory` now wraps
+that `Specification` addition in `if (categoryId != null)`; `latitude`/
+`longitude` both non-null regardless. **Shops with no location are
+excluded, not appended unsorted** — an explicit decision (the ask left
+it open), because they can't be meaningfully ranked and it nudges
+merchants to finish shop setup.
+
+Regression-tested in
+`MerchantFlowIntegrationTest#publicShopsList_categoryIdIsOptionalForCityWideBrowse`
+(omitted `categoryId` returns shops from multiple categories; `lat`/`lng`
+still required either way) alongside the pre-existing
+`#publicShopsList_proximitySortedAndExcludesUnlocatedOrOtherCategory`
+(unchanged — still exercises the `categoryId`-given path).
 
 Sort: Haversine distance from `(lat, lng)` ascending, computed in Java
 (`StoreService.haversineKm`, `EARTH_RADIUS_KM = 6371.0`) over the

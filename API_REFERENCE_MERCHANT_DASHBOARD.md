@@ -928,15 +928,15 @@ doesn't enforce it.
 
 | Param | Type | Notes |
 |---|---|---|
-| `categoryId` | uuid, required | `400 VALIDATION_ERROR` if missing |
+| `categoryId` | uuid, optional | **Changed 2026-09-07: now optional** (was required). Omit to browse every active shop city-wide instead of one category — added for the courier store-picker, which isn't scoped to a category the way the customer browsing grid is. When present, behaves exactly as before. |
 | `lat` | decimal, required | Caller's own latitude — this service has no way to look up a user's location itself, so the frontend passes what it already has from the logged-in customer's profile. `400 VALIDATION_ERROR` if missing |
 | `lng` | decimal, required | `400 VALIDATION_ERROR` if missing |
 | `page` | int | Default 0 |
 | `size` | int | Default 20 |
 
-**Behavior**: only `status=ACTIVE` shops carrying `categoryId`, sorted
-nearest-first from `(lat, lng)` (Haversine against the shop's own
-`latitude`/`longitude` — §1 [Location](#patch-apiv1merchantshopsshopidlocation--set-the-shops-gps-pin)).
+**Behavior**: only `status=ACTIVE` shops (carrying `categoryId`, when
+given), sorted nearest-first from `(lat, lng)` (Haversine against the
+shop's own `latitude`/`longitude` — §1 [Location](#patch-apiv1merchantshopsshopidlocation--set-the-shops-gps-pin)).
 **Decided: shops with no location set are excluded**, not appended
 unsorted — they can't be meaningfully ranked, and it's a natural
 incentive for a merchant to finish shop setup (the open call the

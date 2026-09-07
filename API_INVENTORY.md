@@ -124,7 +124,7 @@ No auth.
 
 | Method & path | Returns |
 |---|---|
-| `GET /?categoryId*&lat*&lng*&page&size` | `Page<PublicShop>` — active shops with `categoryId`, nearest-first (Haversine); unlocated shops excluded |
+| `GET /?categoryId&lat*&lng*&page&size` | `Page<PublicShop>` — active shops, nearest-first (Haversine); `categoryId` optional (omit for city-wide browse, e.g. courier store-picker) — when given, filters to that category; unlocated shops always excluded |
 | `GET /{shopId}` | `PublicShopDetail` |
 | `GET /{shopId}/products?subcategoryId&page&size` | `Page<PublicProduct>` — active products only |
 | `GET /{shopId}/products/{productId}` | `PublicProductDetail` |

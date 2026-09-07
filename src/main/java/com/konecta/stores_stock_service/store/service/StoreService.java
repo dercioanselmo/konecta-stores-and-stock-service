@@ -127,6 +127,9 @@ public class StoreService {
      * unsorted — they can't be meaningfully ranked, and it's a natural
      * incentive for a merchant to finish shop setup (decided per the
      * frontend's open "your call" in the proximity-browsing ask).
+     * {@code categoryId} is optional -- omit it to browse every active
+     * shop city-wide (added for the courier store-picker, which isn't
+     * scoped to a single category the way the customer browsing grid is).
      */
     public PageResponse<PublicShopResponse> listPublicByCategory(UUID categoryId, double lat, double lng,
             Pageable pageable) {
@@ -134,12 +137,14 @@ public class StoreService {
                 cb.equal(root.get("status"), StoreStatus.ACTIVE),
                 cb.isNotNull(root.get("latitude")),
                 cb.isNotNull(root.get("longitude")));
-        spec = spec.and((root, cq, cb) -> {
-            var subquery = cq.subquery(UUID.class);
-            var scRoot = subquery.from(StoreCategory.class);
-            subquery.select(scRoot.get("storeId")).where(cb.equal(scRoot.get("categoryId"), categoryId));
-            return root.get("id").in(subquery);
-        });
+        if (categoryId != null) {
+            spec = spec.and((root, cq, cb) -> {
+                var subquery = cq.subquery(UUID.class);
+                var scRoot = subquery.from(StoreCategory.class);
+                subquery.select(scRoot.get("storeId")).where(cb.equal(scRoot.get("categoryId"), categoryId));
+                return root.get("id").in(subquery);
+            });
+        }
 
         List<Store> candidates = storeRepository.findAll(spec, Pageable.unpaged()).getContent();
         List<PublicShopResponse> sorted = candidates.stream()
