@@ -1029,6 +1029,7 @@ class MerchantFlowIntegrationTest {
                 .andExpect(jsonPath("$.name", is("Tomate")))
                 .andExpect(jsonPath("$.description", is("fresco e maduro")))
                 .andExpect(jsonPath("$.price", is(50.0)))
+                .andExpect(jsonPath("$.ivaRate", is(17.0)))
                 .andExpect(jsonPath("$.inStock", is(true)))
                 .andExpect(jsonPath("$.subcategoryId", is(legumesSubcategoryId)))
                 .andExpect(jsonPath("$.subcategoryName", is("Legumes e Frutas")))
@@ -1283,5 +1284,77 @@ class MerchantFlowIntegrationTest {
                                 """.formatted(java.util.UUID.randomUUID())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code", is("PRODUCT_NOT_FOUND")));
+    }
+
+    @Test
+    void productIvaRate_defaultsTo17SettableAndEditable() throws Exception {
+        String auth = merchantToken("owner-" + System.nanoTime());
+
+        String shopResponse = mockMvc.perform(post("/api/v1/merchant/shops")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Loja IVA", "nuit": "999111222", "address": "Rua IVA",
+                                  "city": "Maputo", "neighborhood": "Central" }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String shopId = objectMapper.readTree(shopResponse).get("id").asText();
+
+        // no ivaRate sent -> defaults to 17
+        String defaultResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto Padrao", "description": "d", "price": 100.0, "stockQuantity": 5 }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.ivaRate", is(17.0)))
+                .andReturn().getResponse().getContentAsString();
+        String defaultProductId = objectMapper.readTree(defaultResponse).get("id").asText();
+
+        // explicit ivaRate on create
+        String customResponse = mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto IVA 5", "description": "d", "price": 50.0, "stockQuantity": 5, "ivaRate": 5 }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.ivaRate", is(5.0)))
+                .andReturn().getResponse().getContentAsString();
+        String customProductId = objectMapper.readTree(customResponse).get("id").asText();
+
+        // GET reflects the stored rate
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products/" + defaultProductId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ivaRate", is(17.0)));
+
+        // list also carries it
+        mockMvc.perform(get("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id=='" + customProductId + "')].ivaRate",
+                        org.hamcrest.Matchers.contains(5.0)));
+
+        // editable via PATCH
+        mockMvc.perform(patch("/api/v1/merchant/shops/" + shopId + "/products/" + defaultProductId)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"ivaRate\": 16 }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ivaRate", is(16.0)));
+
+        // out-of-range rate rejected
+        mockMvc.perform(post("/api/v1/merchant/shops/" + shopId + "/products")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Produto IVA Invalido", "description": "d", "price": 10.0,
+                                  "stockQuantity": 1, "ivaRate": 150 }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
     }
 }

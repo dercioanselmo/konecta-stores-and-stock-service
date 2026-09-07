@@ -15,6 +15,7 @@ public record ProductResponse(
         UUID categoryId,
         String categoryName,
         BigDecimal price,
+        BigDecimal ivaRate,
         int stockQuantity,
         int lowStockThreshold,
         boolean active,

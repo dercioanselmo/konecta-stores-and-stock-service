@@ -10,6 +10,7 @@ public record PublicProductDetailResponse(
         String description,
         String photoUrl,
         BigDecimal price,
+        BigDecimal ivaRate,
         boolean inStock,
         String categoryName,
         UUID subcategoryId,

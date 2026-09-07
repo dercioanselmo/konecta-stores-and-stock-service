@@ -295,9 +295,27 @@ totalElements, totalPages`).
 ### `POST .../products`
 
 Body: `name*`, `description*`, `subcategoryId?` (uuid, see §2), `price*`
-(IVA-inclusive, ≥ 0), `stockQuantity*` (≥ 0), `lowStockThreshold?`
-(default 5), `active?` (default true). Unknown `subcategoryId` → `400
-VALIDATION_ERROR`. `201` → `Product`. Creates the linked inventory row.
+(IVA-inclusive, ≥ 0), `ivaRate?` (percentage 0–100, default
+`Product.DEFAULT_IVA_RATE` = `17.00` when omitted), `stockQuantity*`
+(≥ 0), `lowStockThreshold?` (default 5), `active?` (default true).
+Unknown `subcategoryId` → `400 VALIDATION_ERROR`. `201` → `Product`.
+Creates the linked inventory row.
+
+`ivaRate` added 2026-09-07 for the frontend's per-product-IVA ask (IVA in
+Mozambique varies by product category, not a flat 17% platform-wide) —
+new `products.iva_rate NUMERIC(5,2) NOT NULL DEFAULT 17` column
+(`V10__product_iva_rate.sql`). Every write path
+(`ProductService.create`/`update`) runs the incoming value through
+`normalizeIvaRate` (`.setScale(2, RoundingMode.HALF_UP)`) before
+assigning it — without that, an in-memory value bound straight from a
+JSON request (e.g. `5` → `BigDecimal` scale 0) would serialize
+differently on the create/update response (`5`) than the same value read
+back later once Hibernate reloads it from the `NUMERIC(5,2)` column
+(`5.00`) — same value, inconsistent JSON shape (bare integer vs decimal)
+depending on whether the entity had round-tripped the DB. Caught by
+`productIvaRate_defaultsTo17SettableAndEditable` failing on exactly that
+mismatch during this round; fixed at the normalization point rather than
+papering over it in the test.
 
 ### `GET` / `PATCH .../products/{productId}`
 
@@ -551,16 +569,28 @@ both paths throw the identical `PRODUCT_NOT_FOUND`. `ProductService` now
 depends on `StoreRepository` for this one check (a small cross-domain
 dependency, catalog → store, that didn't exist before).
 
-Response: `{ id, shopId, name, description, photoUrl, price, inStock,
-categoryName, subcategoryId, subcategoryName }` — note this shape drops
-`categoryId` (kept only `categoryName`) compared to the merchant-side
-`Product` model, and adds `shopId` (not on the list row above) so the
-page doesn't need it threaded through separately. `subcategoryId` is
-kept so the frontend's back-link can return to the exact subcategory
-grid, not just the shop page. Category/subcategory name resolution is
-the same `subcategoryRepository`/`categoryRepository` two-step already
-used in `toResponse` — not extracted into a shared helper this round
-(kept local to this method) to keep the diff scoped to just this ask.
+Response: `{ id, shopId, name, description, photoUrl, price, ivaRate,
+inStock, categoryName, subcategoryId, subcategoryName }` — note this
+shape drops `categoryId` (kept only `categoryName`) compared to the
+merchant-side `Product` model, and adds `shopId` (not on the list row
+above) so the page doesn't need it threaded through separately.
+`subcategoryId` is kept so the frontend's back-link can return to the
+exact subcategory grid, not just the shop page. Category/subcategory
+name resolution is the same `subcategoryRepository`/`categoryRepository`
+two-step already used in `toResponse` — not extracted into a shared
+helper this round (kept local to this method) to keep the diff scoped to
+just this ask.
+
+`ivaRate` (added 2026-09-07, round 3 of the Checkout asks): straight
+`product.getIvaRate()` passthrough, same field KONECTA-CART-SERVICE
+already reads from the merchant-scoped `GET .../merchant/shops/{shopId}/products/{productId}`
+(`ProductResponse`) — Checkout can't call that one (customer JWT only,
+`@PreAuthorize`-gated to `MERCHANT`/`MERCHANT_STAFF`/`ADMIN`), so it
+needed the same field surfaced here too. First round of this ask
+(2026-09-07 earlier) added `ivaRate` to the merchant-scoped shapes only
+(`Product`/`CreateProductRequest`/`UpdateProductRequest`/`ProductResponse`)
+and was reported done — Checkout correctly flagged that the *public*
+detail endpoint was a separate gap, not covered by that round.
 
 Regression-tested in
 `MerchantFlowIntegrationTest#publicProductDetail_returnsFullInfoAndHidesInactiveOrWrongShop`
@@ -687,7 +717,7 @@ active, imageUrl`
 ### `Product`
 
 `id, shopId, name, description, subcategoryId, subcategoryName,
-categoryId, categoryName, price, stockQuantity, lowStockThreshold,
+categoryId, categoryName, price, ivaRate, stockQuantity, lowStockThreshold,
 active, lowStock, photos: { id, url, isPrimary }[], createdAt, updatedAt`
 
 (`categoryId`/`categoryName` on `Product` are denormalized from its

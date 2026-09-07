@@ -54,9 +54,9 @@ Role: MERCHANT (owner), MERCHANT_STAFF (assigned shop, full read/write), ADMIN (
 | `DELETE /{productId}/photos/{photoId}` | — | `204` |
 | `PATCH /{productId}/photos/{photoId}/primary` | — | `{ id, url, isPrimary }` |
 
-`Product`: `id, shopId, name, description, subcategoryId, subcategoryName, categoryId, categoryName, price, stockQuantity, lowStockThreshold, active, lowStock, photos: [{id,url,isPrimary}], createdAt, updatedAt`
+`Product`: `id, shopId, name, description, subcategoryId, subcategoryName, categoryId, categoryName, price, ivaRate, stockQuantity, lowStockThreshold, active, lowStock, photos: [{id,url,isPrimary}], createdAt, updatedAt`
 
-`CreateProductRequest`: `name*, description*, subcategoryId, price* (≥0), stockQuantity* (≥0), lowStockThreshold (default 5), active (default true)`
+`CreateProductRequest`: `name*, description*, subcategoryId, price* (≥0), ivaRate (0-100, default 17), stockQuantity* (≥0), lowStockThreshold (default 5), active (default true)`
 `UpdateProductRequest`: same fields, all optional/partial
 
 ---
@@ -132,7 +132,7 @@ No auth.
 `PublicShop`: `id, name, logoUrl, coverUrl, isOpen, distanceKm`
 `PublicShopDetail`: `id, name, logoUrl, coverUrl, isOpen, latitude, longitude, categories: Category[]` (`latitude`/`longitude` nullable — `null` until the merchant sets a location)
 `PublicProduct`: `id, name, photoUrl, price, inStock` (boolean, not raw quantity)
-`PublicProductDetail`: `id, shopId, name, description, photoUrl, price, inStock, categoryName, subcategoryId, subcategoryName`
+`PublicProductDetail`: `id, shopId, name, description, photoUrl, price, ivaRate, inStock, categoryName, subcategoryId, subcategoryName`
 
 Unknown or non-`ACTIVE` `{shopId}` → `404 SHOP_NOT_FOUND` on the shop-detail and shop-products endpoints.
 Unknown/wrong-shop/inactive-shop `{productId}` → `404 PRODUCT_NOT_FOUND` on the product-detail endpoint (never `SHOP_NOT_FOUND` there).

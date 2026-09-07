@@ -452,6 +452,7 @@ literally the Auth service's `PageResponse<T>`, but the same fields):
 | `description` | string | Required |
 | `subcategoryId` | uuid, optional | **Changed since the categories section below was written**: was a free-string `category`, now a reference to a product-level subcategory (see [Category taxonomy](#category-taxonomy)). Ids from `GET /api/v1/meta/categories/{categoryId}/subcategories`. Unknown id → `400 VALIDATION_ERROR`. |
 | `price` | number | IVA-inclusive, ≥ 0, required |
+| `ivaRate` | number, optional | **New.** Percentage (e.g. `17`, `5`) — IVA in Mozambique varies by product category, not a flat platform-wide rate. Defaults to `17` when omitted. Range `0`–`100`, `400 VALIDATION_ERROR` outside that. |
 | `stockQuantity` | integer | Required, ≥ 0 |
 | `lowStockThreshold` | integer, optional | Defaults to `5` |
 | `active` | boolean | Default `true` |
@@ -799,6 +800,7 @@ guessed shapes for them.
   "categoryId": "12a1aaae-42d6-413d-8a86-ab951482fb93",
   "categoryName": "Supermercado",
   "price": 350.00,
+  "ivaRate": 17.00,
   "stockQuantity": 20,
   "lowStockThreshold": 5,
   "active": true,
@@ -822,6 +824,7 @@ guessed shapes for them.
 | `categoryId` | uuid? | Denormalized from the subcategory's parent category, read-only |
 | `categoryName` | string? | Denormalized, read-only |
 | `price` | number | IVA-inclusive |
+| `ivaRate` | number | **New.** Percentage, e.g. `17`, `5` — varies by product category in Mozambique, not a flat platform-wide rate. Defaults to `17`, editable via `ivaRate` on create/update. Always rendered to 2 decimals (`NUMERIC(5,2)` column). |
 | `stockQuantity` | integer | |
 | `lowStockThreshold` | integer | |
 | `active` | boolean | |
@@ -1098,6 +1101,7 @@ to cart.
   "description": "string",
   "photoUrl": "string | null",
   "price": 350.0,
+  "ivaRate": 17.0,
   "inStock": true,
   "categoryName": "string | null",
   "subcategoryId": "uuid | null",
@@ -1111,6 +1115,15 @@ can return to the exact subcategory grid the customer came from, not
 just the shop page. `categoryName`/`subcategoryName` are denormalized
 directly onto the row (same pattern as the merchant-side `Product`
 model) so this page needs only the one call.
+
+`ivaRate` (**new**) — percentage, defaults to `17` when a merchant hasn't
+set one, same field/default as the merchant-scoped `Product.ivaRate`
+(see [§2 Products & stock](#2-products--stock)'s `POST .../products`).
+Added for KONECTA-CHECKOUT-SERVICE, which re-fetches this exact endpoint
+per cart line at checkout time (never trusting the cart's cached values)
+and snapshots `ivaRate` onto the order — this is the only place it can
+read it from, since checkout only ever holds a customer JWT and can't
+call the merchant-scoped product endpoints.
 
 **Errors**: `404 PRODUCT_NOT_FOUND` — for an unknown `productId`, one
 belonging to a different shop, **or** a product whose shop isn't

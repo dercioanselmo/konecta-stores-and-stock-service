@@ -28,6 +28,8 @@ import com.konecta.stores_stock_service.inventory.model.Inventory;
 import com.konecta.stores_stock_service.inventory.service.InventoryService;
 import com.konecta.stores_stock_service.store.model.StoreStatus;
 import com.konecta.stores_stock_service.store.repository.StoreRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -183,6 +185,7 @@ public class ProductService {
                 product.getDescription(),
                 photoUrl,
                 product.getPrice(),
+                product.getIvaRate(),
                 inStock,
                 categoryName,
                 product.getSubcategoryId(),
@@ -197,6 +200,7 @@ public class ProductService {
         product.setDescription(request.description());
         product.setSubcategoryId(requireValidSubcategory(request.subcategoryId()));
         product.setPrice(request.price());
+        product.setIvaRate(request.ivaRate() != null ? normalizeIvaRate(request.ivaRate()) : Product.DEFAULT_IVA_RATE);
         product.setStatus(request.active() == null || request.active() ? ProductStatus.ACTIVE : ProductStatus.INACTIVE);
         product = productRepository.save(product);
 
@@ -224,6 +228,9 @@ public class ProductService {
         }
         if (request.price() != null) {
             product.setPrice(request.price());
+        }
+        if (request.ivaRate() != null) {
+            product.setIvaRate(normalizeIvaRate(request.ivaRate()));
         }
         if (request.lowStockThreshold() != null) {
             inventoryService.setThreshold(product.getId(), request.lowStockThreshold());
@@ -303,6 +310,18 @@ public class ProductService {
         return image;
     }
 
+    /**
+     * Without this, an in-memory ivaRate set from a freshly bound request
+     * (e.g. JSON {@code 5} -> BigDecimal scale 0) would serialize
+     * differently on the create/update response than the same value read
+     * back later from the {@code NUMERIC(5,2)} column (always scale 2) --
+     * same value, inconsistent JSON shape (integer vs decimal) depending on
+     * whether the entity had just round-tripped the DB.
+     */
+    private BigDecimal normalizeIvaRate(BigDecimal ivaRate) {
+        return ivaRate.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private UUID requireValidSubcategory(UUID subcategoryId) {
         if (subcategoryId == null) {
             return null;
@@ -356,6 +375,7 @@ public class ProductService {
                 categoryId,
                 categoryName,
                 product.getPrice(),
+                product.getIvaRate(),
                 inventory.getQuantityAvailable(),
                 inventory.getLowStockThreshold(),
                 product.isActive(),

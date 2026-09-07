@@ -24,6 +24,8 @@ import org.hibernate.annotations.UuidGenerator;
 @NoArgsConstructor
 public class Product {
 
+    public static final BigDecimal DEFAULT_IVA_RATE = new BigDecimal("17.00");
+
     @Id
     @GeneratedValue
     @UuidGenerator
@@ -44,6 +46,9 @@ public class Product {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal price;
+
+    @Column(name = "iva_rate", nullable = false, precision = 5, scale = 2)
+    private BigDecimal ivaRate = DEFAULT_IVA_RATE;
 
     @Column(nullable = false)
     private String currency = "MT";
