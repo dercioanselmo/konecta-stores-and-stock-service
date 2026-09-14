@@ -11,10 +11,14 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: konecta/konecta-stores-and-stock-service
+  DEVOPS_REPO: dercioanselmo/GleamGoods-DevOps
+  VALUES_FILE: 14_Konecta/02_services_K8s_manifests/03_stores_and_stock/02_helm_chart/values-store-stock.yaml
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ steps.vars.outputs.sha_tag }}
 
     steps:
       - name: Checkout code
@@ -38,6 +42,7 @@ jobs:
           echo "SHA_TAG=$SHA_TAG" >> $GITHUB_ENV
           echo "IMAGE_BASE=$IMAGE_BASE" >> $GITHUB_ENV
           echo "TAGS=latest $SHA_TAG" >> $GITHUB_ENV
+          echo "sha_tag=$SHA_TAG" >> "$GITHUB_OUTPUT"
           echo "Using tags: latest and $SHA_TAG"
 
       - name: Build Docker image
@@ -58,3 +63,32 @@ jobs:
           echo "Successfully pushed:"
           echo "  - $IMAGE_BASE:latest"
           echo "  - $IMAGE_BASE:$SHA_TAG"
+
+  # ==============================================================
+  # Update the Helm values file in GleamGoods-DevOps to point at
+  # the new sha tag - this is what actually triggers ArgoCD's
+  # GitOps sync, since the chart lives in a separate repo from
+  # this one. Requires DEVOPS_REPO_TOKEN: a fine-grained PAT with
+  # Contents: write scoped to GleamGoods-DevOps only (the default
+  # GITHUB_TOKEN can't push outside this repo).
+  # ==============================================================
+  update-helm-values:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GleamGoods-DevOps
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DEVOPS_REPO }}
+          token: ${{ secrets.DEVOPS_REPO_TOKEN }}
+
+      - name: Update Helm values file with new image tag
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "dercio.anselmo@gmail.com"
+          sed -i "s|^  tag: .*|  tag: ${{ needs.build-and-push.outputs.sha_tag }}|" "$VALUES_FILE"
+          git diff --quiet || (
+            git add "$VALUES_FILE"
+            git commit -m "Update konecta-stores-and-stock-service image tag to ${{ needs.build-and-push.outputs.sha_tag }}"
+            git push origin main
+          )
