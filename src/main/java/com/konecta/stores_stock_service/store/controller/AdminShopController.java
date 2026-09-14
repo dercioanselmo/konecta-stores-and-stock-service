@@ -38,4 +38,5 @@ public class AdminShopController {
             Pageable pageable) {
         return storeService.listForAdmin(query, status, categoryId, pageable);
     }
+    
 }
