@@ -1,6 +1,7 @@
 package com.konecta.stores_stock_service.common.storage;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -15,8 +16,13 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  * loaded into Spring's Environment, not into actual OS environment
  * variables, so {@code EnvironmentVariableCredentialsProvider} wouldn't see
  * them.
+ * <p>
+ * Only stood up when {@code konecta.storage.provider=s3} — no point
+ * constructing an S3 client against a suspended AWS account by default
+ * (see {@link LocalFilesystemObjectStorageService}).
  */
 @Configuration
+@ConditionalOnProperty(name = "konecta.storage.provider", havingValue = "s3")
 public class AwsS3Config {
 
     @Bean

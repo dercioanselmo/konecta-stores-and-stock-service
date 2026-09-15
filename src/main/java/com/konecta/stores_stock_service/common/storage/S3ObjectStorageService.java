@@ -3,6 +3,7 @@ package com.konecta.stores_stock_service.common.storage;
 import java.time.Duration;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -16,7 +17,15 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
+/**
+ * Active only when {@code konecta.storage.provider=s3} — the AWS account
+ * backing this bucket was suspended 2026-09-15, so the default provider is
+ * now {@link LocalFilesystemObjectStorageService} (see that class for the
+ * full story). Left fully intact, not deleted, so switching back once a
+ * paid account exists is a one-property change, not a rewrite.
+ */
 @Service
+@ConditionalOnProperty(name = "konecta.storage.provider", havingValue = "s3")
 public class S3ObjectStorageService implements ObjectStorageService {
 
     private final S3Client s3Client;
